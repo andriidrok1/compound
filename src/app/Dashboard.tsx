@@ -3,10 +3,40 @@
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 
+const DAILY_ROUTINE_QUOTA = 28; // Claude Team plan
+const MONTHLY_PRICE_USD = 25;
+
 export default function Dashboard() {
-  const toolCalls = useQuery(api.log.recentToolCalls, { limit: 30 });
+  const toolCalls = useQuery(api.log.recentToolCalls, { limit: 200 });
   const additions = useQuery(api.log.recentVaultAdditions, { limit: 20 });
   const topics = useQuery(api.log.allTopics, {});
+
+  // Compute live stats from actual data
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+
+  // A "routine session" ≈ a research_topic tool call (each cron run does one)
+  const routineRunsToday = (toolCalls ?? []).filter(
+    (c) => c.tool === "research_topic" && c.ts >= startOfDay.getTime(),
+  ).length;
+  const routineRunsThisWeek = (toolCalls ?? []).filter(
+    (c) => c.tool === "research_topic" && c.ts >= now - 7 * dayMs,
+  ).length;
+
+  const dailyUsedPct = Math.min(100, Math.round((routineRunsToday / DAILY_ROUTINE_QUOTA) * 100));
+  const weeklyUsedPct = Math.min(
+    100,
+    Math.round((routineRunsThisWeek / (DAILY_ROUTINE_QUOTA * 7)) * 100),
+  );
+
+  // Daily wasted dollars: ($25/30 days) × (1 - usedPct)
+  const dailyBudget = MONTHLY_PRICE_USD / 30;
+  const wastedDailyUsd = (dailyBudget * (1 - dailyUsedPct / 100)).toFixed(2);
+
+  // Notes added today
+  const notesToday = (additions ?? []).filter((a) => a.addedAt >= startOfDay.getTime()).length;
 
   const mcpUrl =
     typeof window !== "undefined"
@@ -27,9 +57,21 @@ export default function Dashboard() {
       </header>
 
       <section className="mb-12 grid md:grid-cols-3 gap-4">
-        <Stat label="Daily routine runs" value="0 / 28" hint="of your Claude Team subscription" />
-        <Stat label="Weekly capacity used" value="~5%" hint="$14 / $25 wasted" />
-        <Stat label="Vault notes today" value={`${additions?.length ?? "·"}`} hint="added autonomously" />
+        <Stat
+          label="Daily routine runs"
+          value={`${routineRunsToday} / ${DAILY_ROUTINE_QUOTA}`}
+          hint={`${dailyUsedPct}% of your Claude Team daily quota`}
+        />
+        <Stat
+          label="Weekly capacity used"
+          value={`${weeklyUsedPct}%`}
+          hint={`$${wastedDailyUsd} wasted today if unused`}
+        />
+        <Stat
+          label="Vault notes today"
+          value={`${notesToday}`}
+          hint="added autonomously"
+        />
       </section>
 
       <section className="mb-12">
