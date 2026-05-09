@@ -102,39 +102,79 @@ export default function Dashboard() {
         </div>
       )}
 
-      {!isFreshUser && (
-      <section className="mb-12 grid md:grid-cols-3 gap-4">
-        <Stat
-          label="Routines used today"
-          value={`${routineRunsToday} / ${DAILY_ROUTINE_QUOTA}`}
-          hint={`${routinesLeft} unused — burn before 6am reset`}
-        />
-        <Stat
-          label="Wasted today if unused"
-          value={`$${wastedTodayUsd}`}
-          hint={`from your $${MONTHLY_PRICE_USD}/mo Claude Team subscription`}
-        />
-        <Stat
-          label="Vault notes added"
-          value={`${notesToday}`}
-          hint={`${notesThisWeek} this week, autonomously`}
-        />
-      </section>
-      )}
+      {/* Stats removed — user cares about what Compound DID and what it'll do NEXT, not pain-hook marketing. */}
 
       {!isFreshUser && (
       <section className="mb-12">
-        <h2 className="text-sm uppercase tracking-wider text-neutral-500 mb-3">Active topics</h2>
-        {effectiveTopics.length === 0 ? (
-          <Empty hint="Topics get registered as Compound observes your vault." />
+        <div className="flex items-baseline justify-between mb-3">
+          <h2 className="text-sm uppercase tracking-wider text-neutral-500">Upcoming research queue</h2>
+          <span className="text-xs text-neutral-600">next overnight cycle: 03:00 SF</span>
+        </div>
+        {!vaultMeta?.detectedTopics?.length ? (
+          <Empty hint="Connect your vault and Compound will queue research topics by activity priority." />
         ) : (
           <div className="grid md:grid-cols-3 gap-3">
-            {effectiveTopics.slice(0, 6).map((t) => (
-              <div key={t._id} className="rounded-lg border border-neutral-800 p-4 bg-neutral-900/50">
-                <div className="text-sm font-medium">{t.name}</div>
-                <div className="text-xs text-neutral-500 mt-1">{t.subtitle}</div>
-              </div>
-            ))}
+            {(() => {
+              // Filter to arxiv-friendly topics, sort by priority,
+              // skip topics researched in last 24h (cooldown).
+              const FRIENDLY = new Set([
+                "pinescript",
+                "trading-",
+                "trading",
+                "deep-research-real-trader-strategies",
+                "rujira-audit",
+                "rujira",
+                "agents",
+                "founder-strategy",
+                "code",
+                "research",
+                "business",
+                "products",
+              ]);
+              const recentlyResearched = new Set(
+                (additions ?? [])
+                  .filter((a) => a.addedAt >= now - 24 * 60 * 60 * 1000)
+                  .map((a) => a.topic.toLowerCase())
+              );
+              const queue = (vaultMeta.detectedTopics ?? [])
+                .filter((t: any) => FRIENDLY.has(t.name.toLowerCase()))
+                .sort((a: any, b: any) => {
+                  const aFresh = recentlyResearched.has(a.name.toLowerCase()) ? 1 : 0;
+                  const bFresh = recentlyResearched.has(b.name.toLowerCase()) ? 1 : 0;
+                  if (aFresh !== bFresh) return aFresh - bFresh;
+                  return b.priority - a.priority;
+                })
+                .slice(0, 3);
+
+              return queue.length === 0 ? (
+                <Empty hint="No arxiv-friendly topics queued — all recently covered." />
+              ) : (
+                queue.map((t: any, i: number) => {
+                  const cooldown = recentlyResearched.has(t.name.toLowerCase());
+                  return (
+                    <div
+                      key={t.name}
+                      className={`rounded-lg border p-4 ${
+                        cooldown
+                          ? "border-neutral-800 bg-neutral-900/30 opacity-60"
+                          : "border-violet-700/40 bg-violet-950/20"
+                      }`}
+                    >
+                      <div className="flex items-baseline justify-between mb-1">
+                        <div className="text-sm font-medium">{t.name}</div>
+                        <span className="text-[10px] uppercase text-neutral-500">
+                          {cooldown ? "cooldown" : `next #${i + 1}`}
+                        </span>
+                      </div>
+                      <div className="text-xs text-neutral-500">{t.evidence}</div>
+                      <div className="text-[10px] text-violet-400 mt-2 font-mono">
+                        priority {t.priority}
+                      </div>
+                    </div>
+                  );
+                })
+              );
+            })()}
           </div>
         )}
       </section>
@@ -142,7 +182,10 @@ export default function Dashboard() {
 
       {!isFreshUser && (
       <section className="mb-12">
-        <h2 className="text-sm uppercase tracking-wider text-neutral-500 mb-3">Recent vault additions</h2>
+        <div className="flex items-baseline justify-between mb-3">
+          <h2 className="text-sm uppercase tracking-wider text-neutral-500">Recent vault additions</h2>
+          <span className="text-xs text-neutral-600">{(additions ?? []).length} total</span>
+        </div>
         {!additions ? (
           <Skeleton lines={3} />
         ) : additions.length === 0 ? (
