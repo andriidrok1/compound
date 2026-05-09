@@ -1,15 +1,20 @@
 /**
  * Server-side Convex client for the MCP route handler.
  * Used to log tool calls and vault additions for the real-time dashboard.
+ *
+ * Defensive init: only creates client if URL is a valid http(s) URL.
+ * Some build environments leak the env var name as a string when unset;
+ * we filter those out so the build doesn't crash.
  */
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../convex/_generated/api";
 
-const url = process.env.NEXT_PUBLIC_CONVEX_URL;
-let client: ConvexHttpClient | null = null;
-if (url) {
-  client = new ConvexHttpClient(url);
+function isValidUrl(s: string | undefined): s is string {
+  return !!s && /^https?:\/\//.test(s);
 }
+
+const url = process.env.NEXT_PUBLIC_CONVEX_URL;
+const client: ConvexHttpClient | null = isValidUrl(url) ? new ConvexHttpClient(url) : null;
 
 export async function logToolCall(args: {
   tool: string;
