@@ -23,22 +23,18 @@ export default function Dashboard() {
   const routineRunsToday = (toolCalls ?? []).filter(
     (c) => c.tool === "research_topic" && c.ts >= startOfDay.getTime(),
   ).length;
-  const routineRunsThisWeek = (toolCalls ?? []).filter(
-    (c) => c.tool === "research_topic" && c.ts >= now - 7 * dayMs,
-  ).length;
 
-  const dailyUsedPct = Math.min(100, Math.round((routineRunsToday / DAILY_ROUTINE_QUOTA) * 100));
-  const weeklyUsedPct = Math.min(
-    100,
-    Math.round((routineRunsThisWeek / (DAILY_ROUTINE_QUOTA * 7)) * 100),
-  );
+  const routinesLeft = Math.max(0, DAILY_ROUTINE_QUOTA - routineRunsToday);
 
-  // Daily wasted dollars: ($25/30 days) × (1 - usedPct)
-  const dailyBudget = MONTHLY_PRICE_USD / 30;
-  const wastedDailyUsd = (dailyBudget * (1 - dailyUsedPct / 100)).toFixed(2);
+  // Wasted dollars approximation:
+  //   $25/mo subscription × (28 routine runs/day allowance) → ~$0.0298/routine
+  //   Wasted today = unused routines × per-routine value
+  const perRoutineValue = MONTHLY_PRICE_USD / 30 / DAILY_ROUTINE_QUOTA; // ~$0.0298
+  const wastedTodayUsd = (routinesLeft * perRoutineValue).toFixed(2);
 
   // Notes added today
   const notesToday = (additions ?? []).filter((a) => a.addedAt >= startOfDay.getTime()).length;
+  const notesThisWeek = (additions ?? []).filter((a) => a.addedAt >= now - 7 * dayMs).length;
 
   const mcpUrl =
     typeof window !== "undefined"
@@ -98,19 +94,19 @@ export default function Dashboard() {
       {!isFreshUser && (
       <section className="mb-12 grid md:grid-cols-3 gap-4">
         <Stat
-          label="Daily routine runs"
+          label="Routines used today"
           value={`${routineRunsToday} / ${DAILY_ROUTINE_QUOTA}`}
-          hint={`${dailyUsedPct}% of your Claude Team daily quota`}
+          hint={`${routinesLeft} unused — burn before 6am reset`}
         />
         <Stat
-          label="Weekly capacity used"
-          value={`${weeklyUsedPct}%`}
-          hint={`$${wastedDailyUsd} wasted today if unused`}
+          label="Wasted today if unused"
+          value={`$${wastedTodayUsd}`}
+          hint={`from your $${MONTHLY_PRICE_USD}/mo Claude Team subscription`}
         />
         <Stat
-          label="Vault notes today"
+          label="Vault notes added"
           value={`${notesToday}`}
-          hint="added autonomously"
+          hint={`${notesThisWeek} this week, autonomously`}
         />
       </section>
       )}
