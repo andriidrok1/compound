@@ -44,6 +44,15 @@ export default function Dashboard() {
       ? `${window.location.origin}/api/mcp`
       : "/api/mcp";
 
+  // Detect "fresh user" state: nothing connected yet
+  const isFreshUser =
+    topics !== undefined &&
+    additions !== undefined &&
+    toolCalls !== undefined &&
+    topics.length === 0 &&
+    additions.length === 0 &&
+    toolCalls.length === 0;
+
   return (
     <div className="min-h-screen px-6 py-10 max-w-6xl mx-auto">
       <header className="mb-12">
@@ -59,6 +68,14 @@ export default function Dashboard() {
 
       <ConnectVault />
 
+      {isFreshUser && (
+        <div className="mb-12 rounded-lg border border-dashed border-neutral-800 p-6 text-sm text-neutral-500 text-center">
+          Once you connect a vault, daily routine usage, detected topics, and overnight research
+          additions will populate this dashboard live.
+        </div>
+      )}
+
+      {!isFreshUser && (
       <section className="mb-12 grid md:grid-cols-3 gap-4">
         <Stat
           label="Daily routine runs"
@@ -76,7 +93,9 @@ export default function Dashboard() {
           hint="added autonomously"
         />
       </section>
+      )}
 
+      {!isFreshUser && (
       <section className="mb-12">
         <h2 className="text-sm uppercase tracking-wider text-neutral-500 mb-3">Active topics</h2>
         {!topics ? (
@@ -98,6 +117,9 @@ export default function Dashboard() {
         )}
       </section>
 
+      )}
+
+      {!isFreshUser && (
       <section className="mb-12">
         <h2 className="text-sm uppercase tracking-wider text-neutral-500 mb-3">Recent vault additions</h2>
         {!additions ? (
@@ -122,6 +144,9 @@ export default function Dashboard() {
         )}
       </section>
 
+      )}
+
+      {!isFreshUser && (
       <section className="mb-12">
         <h2 className="text-sm uppercase tracking-wider text-neutral-500 mb-3">Live activity</h2>
         {!toolCalls ? (
@@ -143,6 +168,8 @@ export default function Dashboard() {
           </ul>
         )}
       </section>
+
+      )}
 
       <section className="rounded-lg border border-neutral-800 p-5 bg-neutral-900/30">
         <h3 className="text-sm font-semibold mb-2">Connect to your Claude</h3>

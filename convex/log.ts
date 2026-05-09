@@ -151,3 +151,22 @@ export const latestVaultMetadata = query({
     return all[0] ?? null;
   },
 });
+
+/**
+ * Wipe all user-facing state — used to reset to a fresh-user experience.
+ */
+export const clearAll = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const tables = ["topics", "vault_additions", "tool_calls", "vault_metadata", "telegram_messages"] as const;
+    let deleted = 0;
+    for (const t of tables) {
+      const rows = await ctx.db.query(t).collect();
+      for (const r of rows) {
+        await ctx.db.delete(r._id);
+        deleted += 1;
+      }
+    }
+    return { deleted };
+  },
+});
