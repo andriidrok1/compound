@@ -121,3 +121,33 @@ export const allTopics = query({
     return ctx.db.query("topics").collect();
   },
 });
+
+// --- vault_metadata ---
+
+export const upsertVaultMetadata = mutation({
+  args: {
+    totalNotes: v.number(),
+    folders: v.array(v.string()),
+    topLinks: v.array(v.object({ name: v.string(), count: v.number() })),
+    recentNotes: v.array(
+      v.object({ title: v.string(), folder: v.string(), modifiedAt: v.number() }),
+    ),
+    detectedTopics: v.array(
+      v.object({ name: v.string(), evidence: v.string(), priority: v.number() }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    // Singleton — keep only the latest snapshot.
+    const existing = await ctx.db.query("vault_metadata").collect();
+    for (const e of existing) await ctx.db.delete(e._id);
+    return ctx.db.insert("vault_metadata", { ...args, syncedAt: Date.now() });
+  },
+});
+
+export const latestVaultMetadata = query({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db.query("vault_metadata").collect();
+    return all[0] ?? null;
+  },
+});

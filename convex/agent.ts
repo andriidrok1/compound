@@ -4,10 +4,32 @@ import { internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 
 /**
- * Pick the topic the user has been most active in over the last 7 days.
- * Heuristic: most recent vault_additions, or fall back to topics table.
+ * Pick the topic the user has been most active in.
+ * Priority order:
+ *   1. detected topics from latest vault_metadata snapshot (priority field)
+ *   2. recent vault_additions cluster
+ *   3. hardcoded fallback
  */
 async function pickHotTopic(ctx: any): Promise<string> {
+  // 1. From init-vault snapshot — best signal
+  const meta = await ctx.runQuery(api.log.latestVaultMetadata, {});
+  if (meta?.detectedTopics?.length > 0) {
+    // Filter to topics arxiv can actually answer
+    const arxivFriendly = meta.detectedTopics.filter((t: any) =>
+      ARXIV_FRIENDLY_TOPICS.has(t.name.toLowerCase()),
+    );
+    const candidates = arxivFriendly.length > 0 ? arxivFriendly : meta.detectedTopics;
+
+    // Pick highest-priority topic that hasn't been researched recently
+    const recent = await ctx.runQuery(api.log.recentVaultAdditions, { limit: 20 });
+    const recentTopics = new Set((recent ?? []).slice(0, 5).map((r: any) => r.topic.toLowerCase()));
+    for (const t of candidates) {
+      if (!recentTopics.has(t.name.toLowerCase())) return t.name;
+    }
+    return candidates[0].name;
+  }
+
+  // 2. Activity-based fallback
   const recent = await ctx.runQuery(api.log.recentVaultAdditions, { limit: 50 });
   if (recent && recent.length > 0) {
     const counts: Record<string, number> = {};
@@ -15,6 +37,8 @@ async function pickHotTopic(ctx: any): Promise<string> {
     const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
     if (sorted[0]) return sorted[0][0];
   }
+
+  // 3. Final fallback
   const topics = await ctx.runQuery(api.log.allTopics, {});
   return topics?.[0]?.name ?? "pinescript";
 }
@@ -62,17 +86,39 @@ async function callMcpTool(name: string, args: Record<string, unknown>) {
 
 /**
  * Map vault topic names to arxiv-friendly academic queries.
- * arxiv has no papers about "pinescript" but plenty about
- * "algorithmic trading", "market microstructure", etc.
+ * Built from Andrii's actual MOC names + detected topics.
  */
 function topicToArxivQuery(topic: string): string {
+  const t = topic.toLowerCase().trim();
   const map: Record<string, string> = {
     pinescript: "algorithmic trading signal detection",
+    "trading-": "algorithmic trading market microstructure",
+    trading: "algorithmic trading market microstructure",
+    "deep-research-real-trader-strategies": "quantitative trading strategy backtesting",
+    "rujira-audit": "smart contract audit security",
+    rujira: "smart contract audit security",
     agents: "autonomous LLM agents",
     "founder-strategy": "startup growth product market fit",
+    products: "product analytics user retention SaaS",
+    research: "research methodology literature synthesis",
   };
-  return map[topic.toLowerCase()] ?? topic;
+  return map[t] ?? topic;
 }
+
+/**
+ * Topics that have meaningful arxiv presence.
+ * Generic words ("work", "profile") return useless results — skip them.
+ */
+const ARXIV_FRIENDLY_TOPICS = new Set([
+  "pinescript",
+  "trading-",
+  "trading",
+  "deep-research-real-trader-strategies",
+  "rujira-audit",
+  "rujira",
+  "agents",
+  "founder-strategy",
+]);
 
 /**
  * Search arxiv directly via their public API (no auth, no CLI binary).
@@ -162,8 +208,14 @@ export const overnightResearch = internalAction({
     }
 
     let addedCount = 0;
+    const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
     for (const p of papers.slice(0, 3)) {
-      const filename = `compound-${Date.now()}-${slug(p.title ?? "paper")}.md`;
+      const cleanTitle = (p.title ?? "Untitled paper")
+        .replace(/[\\/:*?"<>|]/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 80);
+      const filename = `${date} — ${cleanTitle}.md`;
       const content = renderNote(p, topic);
       await callMcpTool("add_note_to_vault", { filename, content, topic });
       addedCount += 1;
