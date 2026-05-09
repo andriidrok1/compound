@@ -1,36 +1,36 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Compound
 
-## Getting Started
+Autonomous research agent for your second brain. Reads arxiv while you sleep, adds findings to your Obsidian vault as wikilinked notes, uses your unused Claude routines to do the work.
 
-First, run the development server:
+Built at [Nozomio Hackathon](https://www.nozomio.com/) — May 9, 2026.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## What it does
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- Watches your Obsidian vault for active topics
+- Reads new arxiv papers / blogs in those topics overnight
+- Cross-references findings with your existing notes
+- Adds new notes with auto-generated `[[wikilinks]]`
+- Lives in Telegram — text it, get autonomous responses
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## The pain
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+You pay $20–25/mo for Claude.ai. You typically use 10–30% of your weekly capacity. The rest resets unused. Meanwhile arxiv publishes 100+ papers a day in your domain. Your vault notes go stale. Your active thinking and the external world stay disconnected.
 
-## Learn More
+Compound bridges them — it monetizes your idle Claude capacity into vault growth.
 
-To learn more about Next.js, take a look at the following resources:
+## Stack
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- [Next.js](https://nextjs.org/) + Tailwind + Vercel
+- [Convex](https://www.convex.dev/) — real-time backend, scheduled functions
+- [Tensorlake](https://tensorlake.ai/) — stateful named sandbox per topic area
+- [Nia](https://www.trynia.ai/) — local vault indexing (Sync daemon) + external content
+- Telegram Bot API
+- Claude API (Sonnet 4.6)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Status
 
-## Deploy on Vercel
+🛠 In active development. Solo build.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## License
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT
