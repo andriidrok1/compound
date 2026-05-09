@@ -6,7 +6,7 @@
 - 🛠 Remaining: Convex setup, Vercel deploy, Telegram bot token, Anthropic API key
 
 **Track:** Always-On Agents (Nia + Tensorlake)
-**Architecture:** Hybrid — MCP server (Claude Routines trigger) + Convex scheduled agent (own autonomous loop)
+**Architecture:** MCP server triggered by Claude Routines. Reasoning split between Claude (user's subscription) and Nia Oracle (free hackathon credits). **Zero Anthropic API spend.**
 
 ---
 
@@ -37,10 +37,11 @@
 ### P1 — Setup completion (12:00 → 12:45, 45 min)
 
 - [ ] `npx convex dev` (browser auth) — initialize Convex, gets URL into `.env.local`
-- [ ] Get Anthropic API key (claude.ai/api or use existing) → `.env.local`
-- [ ] Telegram @BotFather → `/newbot` → token (optional, can skip)
+- [x] Telegram @BotFather → token saved (Hackathon_Compoundbot)
 - [ ] Vercel: import `andriidrok1/compound` → deploy → public URL
 - [ ] Verify `.env.local` has all keys
+
+**No Anthropic API key needed** — reasoning via Claude Routines (user's subscription) + Nia Oracle (free hackathon credits).
 
 **Cut-point:** if Convex auth fights > 15 min, fallback к filesystem state (lose real-time UI).
 
@@ -116,31 +117,26 @@ Update Twitter post #4 with checkpoint screenshot.
 
 ---
 
-### P4 — Convex agent + own scheduled loop (15:10 → 16:10, 1h)
+### P4 — Convex schema + Telegram bot (15:10 → 16:10, 1h)
 
-This is what makes us "the agent" not just "tool wrapper" — critical for Agentic Depth rubric.
+Convex для state/UI/Telegram only. **No own LLM loop** — Claude Routines do the orchestration.
 
 #### `convex/schema.ts`
 ```typescript
 {
   topics: { name, lastResearched, sandboxId },
-  vault_additions: { topic, sourceUrl, content, addedAt, trigger },  // trigger: "routine"|"convex"
-  tool_calls: { tool, args, result, ts, source },                    // for live UI
-  telegram_messages: { from, text, replyTo, ts }                     // optional
+  vault_additions: { topic, sourceUrl, content, addedAt },
+  tool_calls: { tool, args, result, ts, source: "routine"|"telegram"|"manual" },
+  telegram_messages: { from, text, replyTo, ts }
 }
 ```
 
-#### `convex/agent.ts`
-- `internalAction.run()` — Compound's own agent loop:
-  1. List topics
-  2. Pick oldest-researched
-  3. Call same tools as MCP (research_topic, add_note_to_vault)
-  4. Log everything
+#### `convex/telegram.ts`
+- Polling action that calls Telegram getUpdates
+- On message → call same MCP tool functions
+- Reply with synthesis from current Tensorlake state
 
-#### `convex/crons.ts`
-- Schedule `agent.run` every 5 min (demo cadence)
-
-**Acceptance:** Convex tick fires every 5 min, vault gets new notes autonomously, dashboard updates real-time.
+**Acceptance:** Telegram message triggers research, response within 5 sec, dashboard updates real-time.
 
 ---
 
