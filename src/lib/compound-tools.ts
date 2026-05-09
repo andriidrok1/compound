@@ -23,6 +23,15 @@ async function topicsFromConvex(): Promise<{
 } | null> {
   if (!convexClient) return null;
   try {
+    // Primary source: vault_metadata uploaded via Connect Vault
+    const meta = await convexClient.query(api.log.latestVaultMetadata, {});
+    if (meta) {
+      return {
+        folders: meta.folders ?? [],
+        hotLinks: meta.topLinks ?? [],
+      };
+    }
+    // Legacy fallback: manually-tracked topics table
     const all = await convexClient.query(api.log.allTopics, {});
     if (!all || all.length === 0) return null;
     return {
