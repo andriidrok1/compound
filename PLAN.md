@@ -1,169 +1,270 @@
-# Compound — Hackathon Build Plan
+# Compound — Hackathon Build Plan v2
 
-**Status:** at hackathon, 11:00 AM, ~6h to submission (18:00).
-**Track:** Always-On Agents (Nia + Tensorlake).
+**Status (12:00 PM, 6h to submission):**
+- ✅ M0 partial: Tensorlake key, Nia upgraded к startup plan, Next.js scaffold, GitHub repo
+- ✅ M1: Tensorlake hello world — named sandbox + state persistence verified
+- 🛠 Remaining: Convex setup, Vercel deploy, Telegram bot token, Anthropic API key
 
-## Milestone schedule
-
-### M0 — Setup credentials (11:00 → 11:30, 30 min)
-
-All in parallel where possible:
-
-- [ ] `npx convex dev` (browser auth) → `.env.local` gets `NEXT_PUBLIC_CONVEX_URL`
-- [ ] Sign up at tensorlake.ai → API key → `TENSORLAKE_API_KEY`
-- [ ] Sign up at trynia.ai → API key → `NIA_API_KEY`
-- [ ] Telegram @BotFather → `/newbot` → token → `TELEGRAM_BOT_TOKEN`
-- [ ] Verify `ANTHROPIC_API_KEY` works (test curl)
-- [ ] Vercel: import `andriidrok1/compound` → deploy → live URL
-
-**Cut-point:** if Tensorlake signup blocks > 15 min, ping someone in Discord #tensorlake.
+**Track:** Always-On Agents (Nia + Tensorlake)
+**Architecture:** Hybrid — MCP server (Claude Routines trigger) + Convex scheduled agent (own autonomous loop)
 
 ---
 
-### M1 — Tensorlake "hello world" (11:30 → 12:30, 1h) ⚡ CRITICAL
+## Architecture summary
 
-Goal: prove named sandbox + save/retrieve state works end-to-end.
-
-- [ ] `npm install @tensorlake/sdk` (or python sdk if needed)
-- [ ] Create one named sandbox: `compound:test`
-- [ ] Write file to sandbox: `state.json` with `{ "researched": [] }`
-- [ ] Retrieve next call: confirm state persists
-- [ ] Test snapshot (optional bonus)
-
-**Cut-point:** if Tensorlake API fights > 1h → fallback to Convex-only state (lose Statefulness 25% rubric edge but still functional). Don't burn 2h here.
-
-**12:00 — Hyperspell talk.** Sit, listen, code in parallel.
-
----
-
-### M2 — Vault reader + Nia (12:30 → 13:30, 1h)
-
-Eat lunch while coding.
-
-- [ ] `src/lib/vault.ts` — read `~/Documents/Obsidian Vault`, parse markdown, extract titles + wikilinks via regex
-- [ ] `src/lib/nia.ts` — wrap Nia MCP calls (search papers by topic)
-- [ ] Convex schema: `topics`, `vault_notes`, `additions`, `sandbox_state`
-- [ ] Test: scan vault → list topics from active notes
-- [ ] Test: query Nia for "context retrieval" → get 5 papers
-
-**Demo subset:** start with **5 vault notes + 1 topic** for end-to-end test. Scale after loop works.
+```
+┌─ Trigger Path A: Claude Routine (user's subscription)
+│    ↓ HTTPS
+│  Compound MCP /api/mcp
+│    ↓ tool calls
+│  Tools: list_topics, research_topic, add_note, cross_reference
+│
+├─ Trigger Path B: Convex scheduled function (own autonomy)
+│    ↓
+│  Same tool functions called directly
+│
+├─ Tensorlake: durable per-topic research state (suspend/resume)
+├─ Nia: vault index (Sync daemon) + arxiv search
+├─ Convex: real-time DB, activity log, Telegram polling
+├─ Vercel: public deploy (mandatory for MCP — Anthropic cloud reaches us)
+└─ Anthropic Claude: reasoning via user's subscription (Routines/MCP)
+```
 
 ---
 
-### M3 — Agent loop (13:30 → 15:00, 1.5h) ⚡ CORE
+## Phase plan
 
-The actual product.
+### P1 — Setup completion (12:00 → 12:45, 45 min)
 
-- [ ] `convex/agent.ts` — internal action that:
-  1. Pick a topic
-  2. Load sandbox state (already-researched paper IDs)
-  3. Query Nia for new papers in topic
-  4. Filter out already-researched
-  5. For each new paper → Claude call: "is this relevant to vault notes [X, Y, Z]? if yes, draft markdown note with `[[wikilinks]]` to existing notes; if no, return reason"
-  6. If add: write `.md` file to vault folder `Atlas additions/`
-  7. Update sandbox state
-- [ ] `convex/crons.ts` — schedule agent every 5 min (for demo)
-- [ ] Test: run loop manually, see new note appear in vault
+- [ ] `npx convex dev` (browser auth) — initialize Convex, gets URL into `.env.local`
+- [ ] Get Anthropic API key (claude.ai/api or use existing) → `.env.local`
+- [ ] Telegram @BotFather → `/newbot` → token (optional, can skip)
+- [ ] Vercel: import `andriidrok1/compound` → deploy → public URL
+- [ ] Verify `.env.local` has all keys
 
-**Cut-point at 15:00:** if loop doesn't work → demo on pre-baked notes (manually drop 4 "previously added" notes). Loop becomes "live demo trigger only", not autonomous.
+**Cut-point:** if Convex auth fights > 15 min, fallback к filesystem state (lose real-time UI).
 
 ---
 
-### 15:00 — HARD CHECKPOINT
+### P2 — Core libs (12:45 → 13:45, 1h)
 
-Stop. Ask: "if demo were now, what would I show?"
+Build foundation libraries — pure functions, no orchestration yet.
 
-- ✅ Loop works → continue to M4
-- ⚠️ Loop half-works → cut to "trigger-only demo", skip Telegram
-- ❌ Loop broken → use pre-baked fixtures, polish demo flow
+#### `src/lib/vault.ts`
+- `listVaultNotes()` — recursively read `~/Documents/Obsidian Vault`, return note titles
+- `extractTopics()` — heuristic: top-level folders + frequent wikilinks → topic candidates
+- `writeNote(folder, content)` — append `.md` file to `Atlas additions/`
 
----
+#### `src/lib/nia.ts`
+- `searchVault(query)` — wraps `nia search query <q> --local-folders` via shell exec
+- `searchArxiv(query)` — wraps `nia search web <q>` for external papers
+- (later) `oracle(prompt)` — autonomous research call
 
-### M4 — Telegram bot + Web UI (15:00 → 16:30, 1.5h)
+#### `src/lib/tensorlake.ts`
+- `getTopicSandbox(topic)` — find or create named sandbox `compound-${topic}`
+- `loadState(sandbox)` — read `/workspace/state.json` (researched paper IDs, additions log)
+- `saveState(sandbox, state)` — write back, suspend
 
-#### Telegram (45 min)
-- [ ] `convex/telegram.ts` — long-poll Telegram getUpdates
-- [ ] On message: route to agent.query() with vault context
-- [ ] Reply with 5-sec response
+#### Test
+- [ ] `scripts/test-libs.ts` — runs all 3 libs against PineScript topic, verifies output
 
-#### Web dashboard (45 min)
-- [ ] `src/app/page.tsx` — show:
-  - 3 topic sandboxes visualization (cards)
-  - Recent additions timeline
-  - Live agent activity log
-  - Claude usage hook ("$14 wasted this week")
-- [ ] Tailwind, no fancy components — just clean
-
-**Cut-point at 16:00:** if Telegram bot fights → drop Telegram entirely, web chat UI as substitute.
+**Acceptance:** scan vault → list 5 topics → query Nia → return papers → save Tensorlake state → repeat reads correctly.
 
 ---
 
-### M5 — Demo prep + backup (16:30 → 17:30, 1h)
+### P3 — MCP server (13:45 → 15:00, 1h 15min) ⚡ CORE
 
-- [ ] Pre-bake 4 "Atlas-added" notes in vault (timestamps spread across day to fake 8h activity)
-- [ ] Practice demo flow end-to-end with timer (target 90 sec)
-- [ ] Record Loom backup video (90 sec)
-- [ ] Take screenshots for submission
+`src/app/api/mcp/route.ts` — Next.js API route serving MCP-over-HTTP.
+
+Use `@modelcontextprotocol/sdk` for protocol implementation.
+
+#### Tools to expose
+
+```typescript
+{
+  list_topics: () => string[]                  // active topics from vault
+  research_topic: (name: string) => Paper[]    // Nia search + Tensorlake state filter
+  add_note_to_vault: (content: string, topic: string) => string  // writes file, logs to Convex
+  cross_reference: (paper: string, topic: string) => string      // Claude reasoning via Nia oracle
+}
+```
+
+#### Implementation order
+1. `list_topics` — simplest, no state, returns extracted topics
+2. `add_note_to_vault` — writes file + logs to Convex
+3. `research_topic` — full loop: load state → query Nia → filter → return new papers
+4. `cross_reference` — Nia oracle call + structured output
+
+#### Test
+- [ ] `scripts/test-mcp.ts` — curl MCP endpoint with each tool, verify response
+
+**Acceptance:** all 4 tools return structured responses, side effects observable (Convex log + filesystem note).
+
+**Cut-point at 15:00:** if MCP server broken — fall back к direct API endpoint `/api/research` that does same thing without MCP protocol. Demo via curl + Convex live updates.
 
 ---
 
-### M6 — Submit (17:30 → 18:00, 30 min)
+### 15:00 — HARD CHECKPOINT (10 min)
 
-- [ ] `git push` final
+Stop. Answer: "if demo were now, what would I show?"
+
+- ✅ MCP works end-to-end → continue to P4
+- ⚠️ MCP broken but tools work → demo via direct endpoint
+- ❌ Tools broken → pre-baked notes + manual demo
+
+Update Twitter post #4 with checkpoint screenshot.
+
+---
+
+### P4 — Convex agent + own scheduled loop (15:10 → 16:10, 1h)
+
+This is what makes us "the agent" not just "tool wrapper" — critical for Agentic Depth rubric.
+
+#### `convex/schema.ts`
+```typescript
+{
+  topics: { name, lastResearched, sandboxId },
+  vault_additions: { topic, sourceUrl, content, addedAt, trigger },  // trigger: "routine"|"convex"
+  tool_calls: { tool, args, result, ts, source },                    // for live UI
+  telegram_messages: { from, text, replyTo, ts }                     // optional
+}
+```
+
+#### `convex/agent.ts`
+- `internalAction.run()` — Compound's own agent loop:
+  1. List topics
+  2. Pick oldest-researched
+  3. Call same tools as MCP (research_topic, add_note_to_vault)
+  4. Log everything
+
+#### `convex/crons.ts`
+- Schedule `agent.run` every 5 min (demo cadence)
+
+**Acceptance:** Convex tick fires every 5 min, vault gets new notes autonomously, dashboard updates real-time.
+
+---
+
+### P5 — Web dashboard (16:10 → 17:00, 50 min)
+
+`src/app/page.tsx` — minimal but punchy.
+
+#### Sections
+1. **Hero:** "Your Claude.ai usage" — embed real screenshot, 0/28 routines call-out
+2. **Topics:** 3 cards (PineScript, agents, founder strategy) — each shows last researched + paper count
+3. **Live activity log:** real-time list of tool calls (Convex `useQuery` reactive)
+4. **Recent additions:** timestamped list of vault notes added today
+5. **MCP setup hint:** code snippet for adding Compound к Claude
+
+#### Tailwind only, shadcn-free для скорости.
+
+**Acceptance:** dashboard live-updates когда tool fires, judges visually видят activity.
+
+**Cut-point at 16:30:** drop dashboard, output JSON to stdout. Demo via terminal split-screen.
+
+---
+
+### P6 — Demo prep + backup (17:00 → 17:30, 30 min)
+
+- [ ] **Pre-bake 4 vault additions** with timestamps spread across day (9:32, 11:15, 14:00, 15:45) — fakes "8h of activity"
+- [ ] Practice demo flow end-to-end x5 with timer (target 90 sec)
+- [ ] Record Loom backup video (90 sec) — upload, get share URL
+- [ ] Take screenshots for submission form
+- [ ] Final `git push`
+
+---
+
+### P7 — Submit (17:30 → 17:55, 25 min)
+
 - [ ] Verify Vercel production URL works
 - [ ] Submission form: https://forms.gle/fkoFXRo3L2MVkkz87
   - Demo URL: Vercel link
   - GitHub: https://github.com/andriidrok1/compound
-  - Name + email
-- [ ] **Submit by 17:55 sharp** (5 min buffer)
+  - Track: Always-On Agents
+- [ ] Twitter post #5 (submitted)
+- [ ] **Submit by 17:55 sharp** — 5 min buffer
 
 ---
 
-## Twitter posts (set phone alarms)
-
-- **11:30** — post #2 lock-in: "locked in. building Compound — autonomous Obsidian research agent. Tensorlake + Nia stack. shipping live"
-- **13:00** — post #3 mid-build: screenshot of terminal/code
-- **15:00** — post #4 checkpoint: UI screenshot
-- **17:55** — post #5 submission: "submitted. live: [URL]" + 30-sec video
-- **20:00** — post #6 result (win or learn)
-
----
-
-## Hard scope cuts (in priority order, if behind schedule)
-
-1. **Tensorlake snapshots/clones** → just basic save/retrieve state
-2. **Nia integration depth** → use 5 hardcoded paper fixtures
-3. **Telegram bot** → web chat UI substitute
-4. **Web dashboard fanciness** → minimum: list of additions + topic cards
-5. **Live agent loop** → pre-baked demo data, manual trigger
-6. **Multiple topics** → 1 topic only ("PineScript" or single area)
-
----
-
-## Demo flow (90 sec, rehearse 5x at 16:45)
+## Demo flow (90 sec)
 
 ```
-0:00 — "$20/mo Claude. Used 4% this week. $14 wasted. Meet Compound."
-0:15 — [show real Obsidian vault, Atlas additions folder]
-0:35 — [show 3 topic sandboxes from Tensorlake]
-0:55 — [live: text Telegram bot question → agent responds with synthesis]
-1:25 — close: "Tensorlake + Nia. Open source. Vault grows while you sleep."
+0:00 — "Knowledge workers waste 70-90% of their Claude subscription.
+        25 daily routine runs. Most use 0. Meet Compound."
+0:10 — [Show Claude.ai usage — 0/28 routines used]
+0:25 — [Show real Obsidian vault — 200 notes, Atlas additions/ folder]
+0:40 — [Show Tensorlake dashboard — 3 topic sandboxes evolved over day]
+0:55 — [Trigger demo via API call OR show pre-fired routine]
+        → MCP receives → Nia searches → vault gets new note with wikilinks
+1:20 — [Show Convex dashboard live — tool calls timeline]
+1:30 — "Your subscription. Your vault. 24/7 autonomous research.
+        Open source. Tensorlake + Nia + Convex stack."
 ```
+
+---
+
+## Risk register & mitigations
+
+| Risk | Mitigation |
+|---|---|
+| Convex auth blocks > 15 min | filesystem state fallback |
+| MCP-over-HTTP fiddly | use `@modelcontextprotocol/sdk` |
+| Routines don't fire live | API trigger via curl |
+| Vercel deploy breaks at 17:30 | deploy from start, redeploy each commit |
+| Demo flop | pre-recorded Loom backup |
+| Time crunch | hard 15:00 checkpoint, scope cuts in priority order |
+
+---
+
+## Hard scope cuts (priority order)
+
+1. **Cross-reference tool** → 3 tools instead of 4
+2. **Telegram bot** → drop, web dashboard substitute
+3. **Multiple topics** → 1 topic ("PineScript") hardcoded
+4. **Real-time dashboard** → static page with prebaked content
+5. **MCP protocol** → direct `/api/research` endpoint instead
+6. **Convex own agent loop** → pre-baked demo data, manual API trigger
+
+---
+
+## Twitter cadence (phone alarms)
+
+- 12:30 — post #2 lock-in
+- 14:00 — post #3 mid-build
+- 15:00 — post #4 checkpoint
+- 17:55 — post #5 submission
+- 20:00 — post #6 result
 
 ---
 
 ## Submission package
 
-- ✅ GitHub: https://github.com/andriidrok1/compound
-- 🛠 Vercel demo URL: TBD after deploy
-- 🛠 Loom backup video: record at 17:00
-- ✅ Track: Always-On Agents
-- 🛠 Submission form: 17:30–17:55
+- GitHub: https://github.com/andriidrok1/compound
+- Vercel: TBD после deploy
+- Backup video: Loom 90-sec recorded at 17:00
+- Track: Always-On Agents
+- Sponsors used: Nia, Tensorlake, Convex, Vercel, Anthropic (user subscription)
 
 ---
 
-## Emergency contacts (Discord)
+## File deltas to write (in order)
 
-- #tensorlake — for sandbox API issues
-- #nia — for indexing problems
-- #help — general
+```
+convex/schema.ts
+src/lib/vault.ts
+src/lib/nia.ts
+src/lib/tensorlake.ts
+src/app/api/mcp/route.ts
+convex/agent.ts
+convex/crons.ts
+src/app/page.tsx
+scripts/test-libs.ts
+scripts/test-mcp.ts
+```
+
+Plus pre-baked vault additions in `~/Documents/Obsidian Vault/Atlas additions/`.
+
+---
+
+## Stop iterating, start building
+
+Decision lock as of 12:00. No further architecture changes. If we discover blocker, apply scope cut, keep moving.
