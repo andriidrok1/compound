@@ -12,7 +12,6 @@ import {
 export default function ConnectVault() {
   const upload = useMutation(api.log.upsertVaultMetadata);
   const triggerResearch = useAction(api.agent.triggerResearch);
-  const triggerOpenai = useAction(api.agent.triggerOpenaiResearch);
   const [status, setStatus] = useState<
     "idle" | "scanning" | "uploading" | "researching" | "done" | "error"
   >("idle");
@@ -37,14 +36,10 @@ export default function ConnectVault() {
         recentNotes: meta.recentNotes,
         detectedTopics: meta.detectedTopics,
       });
-      // Auto-trigger first research via OpenAI (main path) so the user sees Compound work immediately
+      // Auto-trigger first research so user sees Compound work immediately
       setStatus("researching");
-      const r = await triggerOpenai({});
-      setResearchResult({
-        ...r,
-        addedCount: r.tool_calls_made ?? 0,
-        source: "openai-gpt-4o-mini",
-      });
+      const r = await triggerResearch({});
+      setResearchResult(r);
       setStatus("done");
     } catch (err: any) {
       if (err?.name === "AbortError") {
@@ -68,21 +63,6 @@ export default function ConnectVault() {
     }
   };
 
-  const handleRunOpenai = async () => {
-    setRunning(true);
-    try {
-      const r = await triggerOpenai({});
-      setResearchResult({
-        ...r,
-        addedCount: r.tool_calls_made ?? 0,
-        source: "openai-gpt-4o-mini",
-      });
-    } catch (err: any) {
-      setError(err?.message ?? String(err));
-    } finally {
-      setRunning(false);
-    }
-  };
 
   return (
     <section className="rounded-lg border border-violet-700/40 p-6 bg-violet-950/20 mb-8">
@@ -115,23 +95,13 @@ export default function ConnectVault() {
         </button>
 
         {status === "done" && (
-          <>
-            <button
-              onClick={handleRunOpenai}
-              disabled={running}
-              className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-sm font-medium transition-colors"
-            >
-              {running ? "Running…" : "Run research now (GPT-4o)"}
-            </button>
-            <button
-              onClick={handleRunNow}
-              disabled={running}
-              className="px-4 py-2 rounded border border-neutral-700 hover:bg-neutral-900 disabled:opacity-40 text-sm font-medium transition-colors"
-              title="Alternative path using arxiv direct fetch"
-            >
-              {running ? "Running…" : "Fallback: arxiv direct"}
-            </button>
-          </>
+          <button
+            onClick={handleRunNow}
+            disabled={running}
+            className="px-4 py-2 rounded border border-violet-700/50 hover:bg-violet-950/40 disabled:opacity-40 text-sm font-medium transition-colors"
+          >
+            {running ? "Researching 3 topics…" : "Run research now"}
+          </button>
         )}
       </div>
 
@@ -169,17 +139,19 @@ export default function ConnectVault() {
             {researchResult ? (
               <>
                 {" "}
-                First research run executed via{" "}
-                <span className="text-emerald-300 font-medium">
-                  {researchResult.source ?? "openai-gpt-4o-mini"}
-                </span>
-                . Topic: <span className="text-violet-300">{researchResult.topic}</span>. Tool
-                calls made:{" "}
-                <span className="text-violet-300">{researchResult.addedCount ?? 0}</span>. Scroll
-                down — dashboard live-updates.
+                First research run added{" "}
+                <span className="text-violet-300 font-medium">
+                  {researchResult.papersAdded ?? 0} papers
+                </span>{" "}
+                across{" "}
+                <span className="text-violet-300">
+                  {researchResult.topicsResearched?.length ?? 0} topics
+                </span>{" "}
+                ({researchResult.topicsResearched?.join(", ") ?? "—"}). Scroll down — dashboard
+                reflects it now.
               </>
             ) : (
-              " Overnight cron will research highest-priority topics nightly at 03:00 + 06:00 SF."
+              " Tonight's cron at 03:00 SF will research your top 3 topics. Telegram check-in at 22:00."
             )}
           </div>
         </div>

@@ -4,43 +4,41 @@ import { action, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 
 /**
- * Pick the topic the user has been most active in.
- * Priority order:
- *   1. detected topics from latest vault_metadata snapshot (priority field)
- *   2. recent vault_additions cluster
- *   3. hardcoded fallback
+ * Pick the top N topics the user is most interested in,
+ * skipping ones already researched in the last 24h.
  */
-async function pickHotTopic(ctx: any): Promise<string> {
-  // 1. From init-vault snapshot — best signal
+async function pickInterestingTopics(ctx: any, count: number): Promise<string[]> {
   const meta = await ctx.runQuery(api.log.latestVaultMetadata, {});
-  if (meta?.detectedTopics?.length > 0) {
-    // Filter to topics arxiv can actually answer
-    const arxivFriendly = meta.detectedTopics.filter((t: any) =>
-      ARXIV_FRIENDLY_TOPICS.has(t.name.toLowerCase()),
-    );
-    const candidates = arxivFriendly.length > 0 ? arxivFriendly : meta.detectedTopics;
+  const candidates: { name: string; priority: number }[] = (meta?.detectedTopics ?? []).map(
+    (t: any) => ({ name: t.name, priority: t.priority }),
+  );
 
-    // Pick highest-priority topic that hasn't been researched recently
-    const recent = await ctx.runQuery(api.log.recentVaultAdditions, { limit: 20 });
-    const recentTopics = new Set((recent ?? []).slice(0, 5).map((r: any) => r.topic.toLowerCase()));
-    for (const t of candidates) {
-      if (!recentTopics.has(t.name.toLowerCase())) return t.name;
-    }
-    return candidates[0].name;
+  if (candidates.length === 0) {
+    return ["pinescript"]; // ultimate fallback
   }
 
-  // 2. Activity-based fallback
+  // 24h cooldown — don't re-research same topic too soon
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
   const recent = await ctx.runQuery(api.log.recentVaultAdditions, { limit: 50 });
-  if (recent && recent.length > 0) {
-    const counts: Record<string, number> = {};
-    for (const r of recent) counts[r.topic] = (counts[r.topic] ?? 0) + 1;
-    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-    if (sorted[0]) return sorted[0][0];
-  }
+  const recentTopics = new Set(
+    (recent ?? []).filter((a: any) => a.addedAt >= dayAgo).map((a: any) => a.topic.toLowerCase()),
+  );
 
-  // 3. Final fallback
-  const topics = await ctx.runQuery(api.log.allTopics, {});
-  return topics?.[0]?.name ?? "pinescript";
+  // Sort: cooldown last, then priority desc
+  candidates.sort((a, b) => {
+    const aFresh = recentTopics.has(a.name.toLowerCase()) ? 1 : 0;
+    const bFresh = recentTopics.has(b.name.toLowerCase()) ? 1 : 0;
+    if (aFresh !== bFresh) return aFresh - bFresh;
+    return b.priority - a.priority;
+  });
+
+  return candidates.slice(0, count).map((c) => c.name);
+}
+
+/** Single-topic picker (used by evening check-in for the headline topic). */
+async function pickHotTopic(ctx: any): Promise<string> {
+  const top = await pickInterestingTopics(ctx, 1);
+  return top[0] ?? "pinescript";
 }
 
 /**
@@ -160,22 +158,25 @@ async function arxivSearch(topic: string, limit = 3): Promise<{ id: string; titl
 export const eveningCheckIn = internalAction({
   args: {},
   handler: async (ctx) => {
-    const topic = await pickHotTopic(ctx);
+    const topics = await pickInterestingTopics(ctx, 3);
     const quota = await estimateQuotaLeft(ctx);
+
+    const topicLines = topics.map((t, i) => `  ${i + 1}. *${t}*`).join("\n");
 
     const text = [
       `🌙 *Compound here.*`,
       ``,
-      `Saw you've been deep in *${topic}* lately.`,
-      `You have *${quota.total - quota.used}/${quota.total}* routine runs left before tomorrow's reset (${quota.pct}% capacity).`,
+      `Tonight I'll research your top 3 topics:`,
+      topicLines,
       ``,
-      `I'll use it tonight to research ${topic} while you sleep — don't want it to burn unused.`,
+      `You have *${quota.total - quota.used}/${quota.total}* routine runs left before tomorrow's reset.`,
+      `Using them tonight so they don't burn unused.`,
       ``,
       `Sleep well. Recap at 7:30 ☕`,
     ].join("\n");
 
     await ctx.runAction(internal.telegram_send.send, { text });
-    return { topic, quota };
+    return { topics, quota };
   },
 });
 
@@ -184,44 +185,66 @@ export const eveningCheckIn = internalAction({
  * for each new paper found. Triggers Convex to log everything → dashboard
  * updates while user sleeps.
  */
+/**
+ * Overnight research — researches the user's top 3 interesting topics in one cycle.
+ * Each topic gets one paper added to the vault.
+ *
+ * Triggered by Convex cron (03:00 SF) or manual `Run research now` button.
+ *
+ * Architecture is subscription-friendly:
+ *   - This action calls our public MCP server (https://compound-ashen.vercel.app/api/mcp)
+ *   - The same MCP server is what Claude Routines / ChatGPT Tasks call autonomously when
+ *     a user adds it as a connector + creates a routine.
+ *   - End user pays $0 marginal — they're using subscription quota that would otherwise reset.
+ */
 export const overnightResearch = internalAction({
   args: {},
-  handler: async (ctx): Promise<{ topic: string; addedCount: number; papersConsidered: number; source: string }> => {
-    const topic = await pickHotTopic(ctx);
+  handler: async (ctx): Promise<{
+    topicsResearched: string[];
+    papersAdded: number;
+    perTopic: Record<string, number>;
+  }> => {
+    const topics = await pickInterestingTopics(ctx, 3);
+    const date = new Date().toISOString().slice(0, 10);
+    const perTopic: Record<string, number> = {};
+    let total = 0;
 
-    // Try MCP path first (Claude-routine-equivalent path)
-    let papers: any[] = [];
-    let source = "mcp";
-    const research = await callMcpTool("research_topic", { topic, limit: 3 });
-    const text = research?.content?.[0]?.text ?? "{}";
-    try {
-      const parsed = JSON.parse(text);
-      papers = parsed.newPapers ?? [];
-    } catch {
-      // ignore
+    for (const topic of topics) {
+      // 1. Ask MCP for new papers (filtered against Tensorlake state)
+      const research = await callMcpTool("research_topic", { topic, limit: 2 });
+      const text = research?.content?.[0]?.text ?? "{}";
+      let papers: any[] = [];
+      try {
+        const parsed = JSON.parse(text);
+        papers = parsed.newPapers ?? [];
+      } catch {
+        // ignore
+      }
+
+      // 2. Fallback: arxiv direct API
+      if (papers.length === 0) {
+        papers = await arxivSearch(topic, 1);
+      }
+
+      // 3. Add 1 best paper per topic
+      const best = papers[0];
+      if (best) {
+        const cleanTitle = (best.title ?? "Untitled paper")
+          .replace(/[\\/:*?"<>|]/g, "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 80);
+        const filename = `${date} — ${cleanTitle}.md`;
+        const content = renderNote(best, topic);
+        await callMcpTool("add_note_to_vault", { filename, content, topic });
+        perTopic[topic] = 1;
+        total += 1;
+      } else {
+        perTopic[topic] = 0;
+      }
     }
 
-    // Fallback: hit arxiv API directly from Convex (no Nia CLI dependency)
-    if (papers.length === 0) {
-      papers = await arxivSearch(topic, 3);
-      source = "arxiv-direct";
-    }
-
-    let addedCount = 0;
-    const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    for (const p of papers.slice(0, 3)) {
-      const cleanTitle = (p.title ?? "Untitled paper")
-        .replace(/[\\/:*?"<>|]/g, "")
-        .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, 80);
-      const filename = `${date} — ${cleanTitle}.md`;
-      const content = renderNote(p, topic);
-      await callMcpTool("add_note_to_vault", { filename, content, topic });
-      addedCount += 1;
-    }
-
-    return { topic, addedCount, papersConsidered: papers.length, source };
+    return { topicsResearched: topics, papersAdded: total, perTopic };
   },
 });
 
@@ -265,87 +288,13 @@ function slug(s: string): string {
 }
 
 /**
- * Multi-LLM autonomous research via OpenAI Responses API.
- *
- * Lets GPT-4o autonomously orchestrate Compound's MCP tools — same outcome
- * as Claude routines, different brain. Demonstrates that Compound is
- * LLM-agnostic infrastructure, not Anthropic-specific.
- */
-export const openaiResearch = internalAction({
-  args: {},
-  handler: async (ctx): Promise<any> => {
-    const topic = await pickHotTopic(ctx);
-    const apiKey = process.env.OPENAI_API_KEY;
-    const mcpUrl = process.env.MCP_URL ?? "https://compound-ashen.vercel.app/api/mcp";
-
-    if (!apiKey) {
-      return { error: "OPENAI_API_KEY not set", topic };
-    }
-
-    const prompt = [
-      `You are Compound's overnight research agent. Your task:`,
-      `1. Call list_topics to see available topics.`,
-      `2. Call research_topic with topic="${topic}" to get new arxiv papers.`,
-      `3. For each new paper, call add_note_to_vault with:`,
-      `   - filename: "YYYY-MM-DD — <clean paper title>.md"`,
-      `   - topic: "${topic}"`,
-      `   - content: well-formed markdown with frontmatter, paper summary, and [[wikilinks]] to existing related notes`,
-      `4. Be efficient — minimize tool calls. Stop after adding up to 2 notes.`,
-    ].join("\n");
-
-    const resp = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        input: prompt,
-        tools: [
-          {
-            type: "mcp",
-            server_url: mcpUrl,
-            server_label: "compound",
-            require_approval: "never",
-            allowed_tools: ["list_topics", "research_topic", "add_note_to_vault"],
-          },
-        ],
-        max_output_tokens: 4000,
-      }),
-    });
-
-    const data: any = await resp.json().catch(() => ({}));
-    return {
-      topic,
-      ok: resp.ok,
-      status: resp.status,
-      output_summary: data?.output?.[0]?.content?.[0]?.text?.slice(0, 300) ?? null,
-      tool_calls_made: (data?.output ?? []).filter((o: any) => o.type === "mcp_call").length,
-      raw_error: data?.error ?? null,
-    };
-  },
-});
-
-/**
- * Public actions — callable from the web UI ("Run research now" button)
- * + from Connect Vault auto-trigger.
+ * Public action: triggered by the web UI ("Run research now" button) and
+ * by Connect Vault auto-trigger after metadata upload.
  */
 export const triggerResearch = action({
   args: {},
   handler: async (ctx): Promise<any> => {
     return await ctx.runAction(internal.agent.overnightResearch, {});
-  },
-});
-
-/**
- * Public action: trigger OpenAI-driven research path.
- * Used to demonstrate multi-LLM compatibility on the live demo.
- */
-export const triggerOpenaiResearch = action({
-  args: {},
-  handler: async (ctx): Promise<any> => {
-    return await ctx.runAction(internal.agent.openaiResearch, {});
   },
 });
 

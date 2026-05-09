@@ -80,12 +80,13 @@ export default function Dashboard() {
         <p className="text-neutral-300 text-base leading-relaxed max-w-2xl">
           Your second brain on autopilot.{" "}
           <span className="text-neutral-500">
-            Reads arxiv while you sleep, adds findings to your Obsidian vault as wikilinked notes —
-            using your unused LLM subscription capacity that would otherwise reset.
+            Researches 3 of your active topics every night, adds findings to your Obsidian vault
+            as wikilinked notes — using your unused Claude / ChatGPT routine capacity that would
+            otherwise reset.
           </span>
         </p>
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
-          <Pill>Powered by GPT-4o</Pill>
+          <Pill>3 topics nightly</Pill>
           <Pill>Tensorlake state per topic</Pill>
           <Pill>Convex real-time</Pill>
           <Pill>Open MCP server</Pill>
@@ -265,9 +266,9 @@ export default function Dashboard() {
             tag="vault_metadata"
           />
           <ArchCard
-            title="3. GPT-4o orchestrates research"
-            body="Convex cron triggers OpenAI Responses API. GPT-4o calls our MCP tools autonomously: list_topics → research_topic → add_note_to_vault."
-            tag="OpenAI Responses API"
+            title="3. Cron researches 3 topics nightly"
+            body="03:00 SF cron loops through top 3 priority topics. For each: queries arxiv via MCP, dedupes via Tensorlake state, adds 1 paper to vault."
+            tag="Convex cron + MCP"
           />
           <ArchCard
             title="4. Tensorlake holds memory"
