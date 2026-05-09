@@ -8,7 +8,10 @@
  * @module
  */
 
+import type * as agent from "../agent.js";
+import type * as crons from "../crons.js";
 import type * as log from "../log.js";
+import type * as telegram_send from "../telegram_send.js";
 
 import type {
   ApiFromModules,
@@ -17,7 +20,10 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  agent: typeof agent;
+  crons: typeof crons;
   log: typeof log;
+  telegram_send: typeof telegram_send;
 }>;
 
 /**
