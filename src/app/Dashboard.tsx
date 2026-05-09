@@ -11,6 +11,7 @@ export default function Dashboard() {
   const toolCalls = useQuery(api.log.recentToolCalls, { limit: 200 });
   const additions = useQuery(api.log.recentVaultAdditions, { limit: 20 });
   const topics = useQuery(api.log.allTopics, {});
+  const vaultMeta = useQuery(api.log.latestVaultMetadata, {});
 
   // Compute live stats from actual data
   const now = Date.now();
@@ -44,14 +45,33 @@ export default function Dashboard() {
       ? `${window.location.origin}/api/mcp`
       : "/api/mcp";
 
-  // Detect "fresh user" state: nothing connected yet
+  // Detect "fresh user" state: vault not connected AND no activity yet
   const isFreshUser =
+    vaultMeta !== undefined &&
+    !vaultMeta &&
     topics !== undefined &&
     additions !== undefined &&
     toolCalls !== undefined &&
     topics.length === 0 &&
     additions.length === 0 &&
     toolCalls.length === 0;
+
+  // Effective active topics list: prefer detected topics from vault_metadata,
+  // fall back to manually-tracked `topics` table.
+  type DisplayTopic = { _id: string; name: string; subtitle: string };
+  const effectiveTopics: DisplayTopic[] = vaultMeta?.detectedTopics?.length
+    ? vaultMeta.detectedTopics.map((t, i) => ({
+        _id: `meta-${i}`,
+        name: t.name,
+        subtitle: t.evidence,
+      }))
+    : (topics ?? []).map((t) => ({
+        _id: String(t._id),
+        name: t.name,
+        subtitle: `${t.paperCount} papers researched${
+          t.lastResearched ? ` · ${new Date(t.lastResearched).toLocaleTimeString()}` : ""
+        }`,
+      }));
 
   return (
     <div className="min-h-screen px-6 py-10 max-w-6xl mx-auto">
@@ -98,25 +118,19 @@ export default function Dashboard() {
       {!isFreshUser && (
       <section className="mb-12">
         <h2 className="text-sm uppercase tracking-wider text-neutral-500 mb-3">Active topics</h2>
-        {!topics ? (
-          <Skeleton lines={2} />
-        ) : topics.length === 0 ? (
+        {effectiveTopics.length === 0 ? (
           <Empty hint="Topics get registered as Compound observes your vault." />
         ) : (
           <div className="grid md:grid-cols-3 gap-3">
-            {topics.map((t) => (
+            {effectiveTopics.slice(0, 6).map((t) => (
               <div key={t._id} className="rounded-lg border border-neutral-800 p-4 bg-neutral-900/50">
                 <div className="text-sm font-medium">{t.name}</div>
-                <div className="text-xs text-neutral-500 mt-1">
-                  {t.paperCount} papers researched
-                  {t.lastResearched ? ` · ${new Date(t.lastResearched).toLocaleTimeString()}` : ""}
-                </div>
+                <div className="text-xs text-neutral-500 mt-1">{t.subtitle}</div>
               </div>
             ))}
           </div>
         )}
       </section>
-
       )}
 
       {!isFreshUser && (
