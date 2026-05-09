@@ -88,31 +88,42 @@ export async function listTopics(): Promise<{
 }
 
 /**
- * Search Semantic Scholar — free public API, no auth required, no rate limit issues.
+ * Search OpenAlex — free public API, no auth, generous rate limits.
  * Returns recent papers matching the topic.
  */
-async function semanticScholarSearch(topic: string, limit: number): Promise<Paper[]> {
+async function openAlexSearch(topic: string, limit: number): Promise<Paper[]> {
   try {
-    const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(
+    const url = `https://api.openalex.org/works?search=${encodeURIComponent(
       topic,
-    )}&limit=${limit * 2}&fields=title,abstract,url,externalIds,year`;
+    )}&per_page=${limit * 2}&sort=publication_date:desc`;
     const resp = await fetch(url, {
-      headers: { "User-Agent": "Compound/0.1" },
+      headers: { "User-Agent": "Compound/0.1 (mailto:hi@compound.dev)" },
     });
     if (!resp.ok) return [];
     const data: any = await resp.json();
-    const papers: Paper[] = (data.data ?? []).slice(0, limit * 2).map((p: any) => ({
-      id: hashId(p.paperId ?? p.title ?? ""),
+    const papers: Paper[] = (data.results ?? []).slice(0, limit * 2).map((p: any) => ({
+      id: hashId(p.id ?? p.title ?? ""),
       title: (p.title ?? "Untitled").slice(0, 200),
-      source: p.externalIds?.ArXiv
-        ? `https://arxiv.org/abs/${p.externalIds.ArXiv}`
-        : p.url ?? "semantic-scholar",
-      snippet: (p.abstract ?? "").slice(0, 320),
+      source: p.doi ?? p.id ?? "openalex",
+      snippet: (p.abstract_inverted_index ? reconstructAbstract(p.abstract_inverted_index) : "")
+        .slice(0, 320),
     }));
     return papers;
   } catch {
     return [];
   }
+}
+
+/**
+ * OpenAlex stores abstracts as an inverted index — reconstruct to plain text.
+ */
+function reconstructAbstract(inverted: Record<string, number[]>): string {
+  const positions: { word: string; pos: number }[] = [];
+  for (const [word, posList] of Object.entries(inverted)) {
+    for (const pos of posList) positions.push({ word, pos });
+  }
+  positions.sort((a, b) => a.pos - b.pos);
+  return positions.map((p) => p.word).join(" ");
 }
 
 /**
@@ -123,8 +134,8 @@ export async function researchTopic(topic: string, limit = 5): Promise<ResearchR
   return withTopicState(topic, async (state) => {
     let candidates: Paper[] = [];
 
-    // Primary: Semantic Scholar — works on Vercel, no rate limit
-    candidates = await semanticScholarSearch(topic, limit);
+    // Primary: OpenAlex — free, no auth, no rate limit, works on Vercel
+    candidates = await openAlexSearch(topic, limit);
 
     // Fallback: Nia web search (CLI-based, works locally)
     if (candidates.length === 0) {
