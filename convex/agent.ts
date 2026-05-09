@@ -1,6 +1,6 @@
 "use node";
 
-import { internalAction } from "./_generated/server";
+import { action, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 
 /**
@@ -263,6 +263,31 @@ export const morningRecap = internalAction({
 function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
 }
+
+/**
+ * Public actions — callable from the web UI ("Run research now" button)
+ * + from Connect Vault auto-trigger.
+ */
+export const triggerResearch = action({
+  args: {},
+  handler: async (ctx): Promise<any> => {
+    return await ctx.runAction(internal.agent.overnightResearch, {});
+  },
+});
+
+export const triggerEveningCheckIn = action({
+  args: {},
+  handler: async (ctx): Promise<any> => {
+    return await ctx.runAction(internal.agent.eveningCheckIn, {});
+  },
+});
+
+export const triggerMorningRecap = action({
+  args: {},
+  handler: async (ctx): Promise<any> => {
+    return await ctx.runAction(internal.agent.morningRecap, {});
+  },
+});
 
 function renderNote(paper: any, topic: string): string {
   const title = paper.title ?? "Untitled";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation } from "convex/react";
+import { useMutation, useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import {
   pickAndScanVault,
@@ -11,9 +11,14 @@ import {
 
 export default function ConnectVault() {
   const upload = useMutation(api.log.upsertVaultMetadata);
-  const [status, setStatus] = useState<"idle" | "scanning" | "uploading" | "done" | "error">("idle");
+  const triggerResearch = useAction(api.agent.triggerResearch);
+  const [status, setStatus] = useState<
+    "idle" | "scanning" | "uploading" | "researching" | "done" | "error"
+  >("idle");
   const [result, setResult] = useState<VaultScanResult | null>(null);
   const [error, setError] = useState<string>("");
+  const [researchResult, setResearchResult] = useState<any>(null);
+  const [running, setRunning] = useState(false);
 
   const supported = isFileSystemAccessSupported();
 
@@ -31,6 +36,10 @@ export default function ConnectVault() {
         recentNotes: meta.recentNotes,
         detectedTopics: meta.detectedTopics,
       });
+      // Auto-trigger first research so the user sees Compound work immediately
+      setStatus("researching");
+      const r = await triggerResearch({});
+      setResearchResult(r);
       setStatus("done");
     } catch (err: any) {
       if (err?.name === "AbortError") {
@@ -39,6 +48,18 @@ export default function ConnectVault() {
       }
       setError(err?.message ?? String(err));
       setStatus("error");
+    }
+  };
+
+  const handleRunNow = async () => {
+    setRunning(true);
+    try {
+      const r = await triggerResearch({});
+      setResearchResult(r);
+    } catch (err: any) {
+      setError(err?.message ?? String(err));
+    } finally {
+      setRunning(false);
     }
   };
 
@@ -58,17 +79,30 @@ export default function ConnectVault() {
         </div>
       )}
 
-      <button
-        onClick={handleConnect}
-        disabled={!supported || status === "scanning" || status === "uploading"}
-        className="px-4 py-2 rounded bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium transition-colors"
-      >
-        {status === "idle" && "Connect Vault"}
-        {status === "scanning" && "Scanning vault…"}
-        {status === "uploading" && "Uploading metadata…"}
-        {status === "done" && "✓ Connected — pick another"}
-        {status === "error" && "Try again"}
-      </button>
+      <div className="flex flex-wrap gap-3">
+        <button
+          onClick={handleConnect}
+          disabled={!supported || status === "scanning" || status === "uploading" || status === "researching"}
+          className="px-4 py-2 rounded bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium transition-colors"
+        >
+          {status === "idle" && "Connect Vault"}
+          {status === "scanning" && "Scanning vault…"}
+          {status === "uploading" && "Uploading metadata…"}
+          {status === "researching" && "Running first research…"}
+          {status === "done" && "✓ Connected — pick another"}
+          {status === "error" && "Try again"}
+        </button>
+
+        {status === "done" && (
+          <button
+            onClick={handleRunNow}
+            disabled={running}
+            className="px-4 py-2 rounded border border-violet-700/50 hover:bg-violet-950/40 disabled:opacity-40 text-sm font-medium transition-colors"
+          >
+            {running ? "Running…" : "Run research now"}
+          </button>
+        )}
+      </div>
 
       {error && <div className="text-sm text-red-400 mt-3">Error: {error}</div>}
 
@@ -100,8 +134,20 @@ export default function ConnectVault() {
           )}
 
           <div className="md:col-span-2 text-xs text-neutral-400 mt-2">
-            🟢 Compound configured. Overnight cron will research the highest-priority topics
-            tonight at 03:00 (your time). You&apos;ll get a Telegram check-in at 22:00.
+            🟢 Compound configured.
+            {researchResult ? (
+              <>
+                {" "}
+                First research run completed:{" "}
+                <span className="text-violet-300 font-medium">
+                  {researchResult.addedCount ?? 0} notes added
+                </span>{" "}
+                from topic <span className="text-violet-300">{researchResult.topic}</span> via{" "}
+                {researchResult.source}. Scroll down — dashboard reflects it now.
+              </>
+            ) : (
+              " Overnight cron will research highest-priority topics tonight at 03:00."
+            )}
           </div>
         </div>
       )}
