@@ -2,6 +2,7 @@
 
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import ConnectVault from "./ConnectVault";
 
 const DAILY_ROUTINE_QUOTA = 28; // Claude Team plan
 const MONTHLY_PRICE_USD = 25;
@@ -55,6 +56,8 @@ export default function Dashboard() {
           adds findings as wikilinked notes — using your unused Claude routine capacity.
         </p>
       </header>
+
+      <ConnectVault />
 
       <section className="mb-12 grid md:grid-cols-3 gap-4">
         <Stat
