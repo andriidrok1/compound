@@ -265,6 +265,69 @@ function slug(s: string): string {
 }
 
 /**
+ * Multi-LLM autonomous research via OpenAI Responses API.
+ *
+ * Lets GPT-4o autonomously orchestrate Compound's MCP tools — same outcome
+ * as Claude routines, different brain. Demonstrates that Compound is
+ * LLM-agnostic infrastructure, not Anthropic-specific.
+ */
+export const openaiResearch = internalAction({
+  args: {},
+  handler: async (ctx): Promise<any> => {
+    const topic = await pickHotTopic(ctx);
+    const apiKey = process.env.OPENAI_API_KEY;
+    const mcpUrl = process.env.MCP_URL ?? "https://compound-ashen.vercel.app/api/mcp";
+
+    if (!apiKey) {
+      return { error: "OPENAI_API_KEY not set", topic };
+    }
+
+    const prompt = [
+      `You are Compound's overnight research agent. Your task:`,
+      `1. Call list_topics to see available topics.`,
+      `2. Call research_topic with topic="${topic}" to get new arxiv papers.`,
+      `3. For each new paper, call add_note_to_vault with:`,
+      `   - filename: "YYYY-MM-DD — <clean paper title>.md"`,
+      `   - topic: "${topic}"`,
+      `   - content: well-formed markdown with frontmatter, paper summary, and [[wikilinks]] to existing related notes`,
+      `4. Be efficient — minimize tool calls. Stop after adding up to 2 notes.`,
+    ].join("\n");
+
+    const resp = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        input: prompt,
+        tools: [
+          {
+            type: "mcp",
+            server_url: mcpUrl,
+            server_label: "compound",
+            require_approval: "never",
+            allowed_tools: ["list_topics", "research_topic", "add_note_to_vault"],
+          },
+        ],
+        max_output_tokens: 4000,
+      }),
+    });
+
+    const data: any = await resp.json().catch(() => ({}));
+    return {
+      topic,
+      ok: resp.ok,
+      status: resp.status,
+      output_summary: data?.output?.[0]?.content?.[0]?.text?.slice(0, 300) ?? null,
+      tool_calls_made: (data?.output ?? []).filter((o: any) => o.type === "mcp_call").length,
+      raw_error: data?.error ?? null,
+    };
+  },
+});
+
+/**
  * Public actions — callable from the web UI ("Run research now" button)
  * + from Connect Vault auto-trigger.
  */
@@ -272,6 +335,17 @@ export const triggerResearch = action({
   args: {},
   handler: async (ctx): Promise<any> => {
     return await ctx.runAction(internal.agent.overnightResearch, {});
+  },
+});
+
+/**
+ * Public action: trigger OpenAI-driven research path.
+ * Used to demonstrate multi-LLM compatibility on the live demo.
+ */
+export const triggerOpenaiResearch = action({
+  args: {},
+  handler: async (ctx): Promise<any> => {
+    return await ctx.runAction(internal.agent.openaiResearch, {});
   },
 });
 

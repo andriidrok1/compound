@@ -12,6 +12,7 @@ import {
 export default function ConnectVault() {
   const upload = useMutation(api.log.upsertVaultMetadata);
   const triggerResearch = useAction(api.agent.triggerResearch);
+  const triggerOpenai = useAction(api.agent.triggerOpenaiResearch);
   const [status, setStatus] = useState<
     "idle" | "scanning" | "uploading" | "researching" | "done" | "error"
   >("idle");
@@ -63,6 +64,22 @@ export default function ConnectVault() {
     }
   };
 
+  const handleRunOpenai = async () => {
+    setRunning(true);
+    try {
+      const r = await triggerOpenai({});
+      setResearchResult({
+        ...r,
+        addedCount: r.tool_calls_made ?? 0,
+        source: "openai-gpt-4o-mini",
+      });
+    } catch (err: any) {
+      setError(err?.message ?? String(err));
+    } finally {
+      setRunning(false);
+    }
+  };
+
   return (
     <section className="rounded-lg border border-violet-700/40 p-6 bg-violet-950/20 mb-8">
       <h2 className="text-lg font-semibold mb-1">Connect your Obsidian vault</h2>
@@ -94,13 +111,22 @@ export default function ConnectVault() {
         </button>
 
         {status === "done" && (
-          <button
-            onClick={handleRunNow}
-            disabled={running}
-            className="px-4 py-2 rounded border border-violet-700/50 hover:bg-violet-950/40 disabled:opacity-40 text-sm font-medium transition-colors"
-          >
-            {running ? "Running…" : "Run research now"}
-          </button>
+          <>
+            <button
+              onClick={handleRunNow}
+              disabled={running}
+              className="px-4 py-2 rounded border border-violet-700/50 hover:bg-violet-950/40 disabled:opacity-40 text-sm font-medium transition-colors"
+            >
+              {running ? "Running…" : "Run via Claude path (arxiv direct)"}
+            </button>
+            <button
+              onClick={handleRunOpenai}
+              disabled={running}
+              className="px-4 py-2 rounded border border-emerald-700/50 hover:bg-emerald-950/40 disabled:opacity-40 text-sm font-medium transition-colors"
+            >
+              {running ? "Running…" : "Run via GPT-4o (MCP autonomous)"}
+            </button>
+          </>
         )}
       </div>
 

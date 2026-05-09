@@ -78,7 +78,11 @@ export default function Dashboard() {
         </div>
         <p className="text-neutral-400 text-sm max-w-xl">
           Autonomous research agent for your Obsidian vault. Reads arxiv while you sleep,
-          adds findings as wikilinked notes — using your unused Claude routine capacity.
+          adds findings as wikilinked notes. Works with{" "}
+          <span className="text-neutral-200">Claude Routines</span>,{" "}
+          <span className="text-neutral-200">ChatGPT Tasks</span>,{" "}
+          <span className="text-neutral-200">GPT-4o API</span>, or any MCP-compatible client —
+          uses your subscription capacity that would otherwise reset unused.
         </p>
       </header>
 
