@@ -88,30 +88,62 @@ export async function listTopics(): Promise<{
 }
 
 /**
+ * Search Semantic Scholar — free public API, no auth required, no rate limit issues.
+ * Returns recent papers matching the topic.
+ */
+async function semanticScholarSearch(topic: string, limit: number): Promise<Paper[]> {
+  try {
+    const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(
+      topic,
+    )}&limit=${limit * 2}&fields=title,abstract,url,externalIds,year`;
+    const resp = await fetch(url, {
+      headers: { "User-Agent": "Compound/0.1" },
+    });
+    if (!resp.ok) return [];
+    const data: any = await resp.json();
+    const papers: Paper[] = (data.data ?? []).slice(0, limit * 2).map((p: any) => ({
+      id: hashId(p.paperId ?? p.title ?? ""),
+      title: (p.title ?? "Untitled").slice(0, 200),
+      source: p.externalIds?.ArXiv
+        ? `https://arxiv.org/abs/${p.externalIds.ArXiv}`
+        : p.url ?? "semantic-scholar",
+      snippet: (p.abstract ?? "").slice(0, 320),
+    }));
+    return papers;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * research_topic — find new papers for a topic, filtering against Tensorlake state.
- * Uses Nia web search + vault context for relevance.
+ * Multi-source: Semantic Scholar (primary) + Nia web (secondary) + raw answer parsing.
  */
 export async function researchTopic(topic: string, limit = 5): Promise<ResearchResult> {
   return withTopicState(topic, async (state) => {
     let candidates: Paper[] = [];
 
-    // Web search for arxiv papers
-    try {
-      const q = `${topic} arxiv 2025 paper site:arxiv.org`;
-      const webResp = await searchWeb(q);
-      if (webResp.results && webResp.results.length > 0) {
-        candidates = webResp.results.slice(0, limit * 2).map((r) => ({
-          id: hashId(r.content ?? r.source ?? ""),
-          title: deriveTitle(r.content ?? ""),
-          source: r.source ?? "nia-web",
-          snippet: (r.content ?? "").slice(0, 280),
-        }));
-      } else if (webResp.answer && webResp.answer.length > 50) {
-        // Parse multi-line answer into pseudo-papers (one per paragraph with a URL)
-        candidates = extractPapersFromAnswer(webResp.answer, limit * 2);
+    // Primary: Semantic Scholar — works on Vercel, no rate limit
+    candidates = await semanticScholarSearch(topic, limit);
+
+    // Fallback: Nia web search (CLI-based, works locally)
+    if (candidates.length === 0) {
+      try {
+        const q = `${topic} arxiv 2025 paper site:arxiv.org`;
+        const webResp = await searchWeb(q);
+        if (webResp.results && webResp.results.length > 0) {
+          candidates = webResp.results.slice(0, limit * 2).map((r) => ({
+            id: hashId(r.content ?? r.source ?? ""),
+            title: deriveTitle(r.content ?? ""),
+            source: r.source ?? "nia-web",
+            snippet: (r.content ?? "").slice(0, 280),
+          }));
+        } else if (webResp.answer && webResp.answer.length > 50) {
+          candidates = extractPapersFromAnswer(webResp.answer, limit * 2);
+        }
+      } catch {
+        // continue with empty
       }
-    } catch {
-      // continue with empty
     }
 
     const seen = new Set(state.researched.map((r) => r.paperId));
