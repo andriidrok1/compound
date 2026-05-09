@@ -183,6 +183,47 @@ export default function Dashboard() {
 
       )}
 
+      {/* Architecture / How it works */}
+      <section className="rounded-lg border border-neutral-800 p-5 bg-neutral-900/30 mb-6">
+        <h3 className="text-sm font-semibold mb-3">How Compound runs</h3>
+        <div className="grid md:grid-cols-3 gap-3 text-xs">
+          <ArchCard
+            title="1. You connect a vault"
+            body="Browser scans your Obsidian folder locally. Only metadata leaves your machine — folders, top wikilinks, recent edits."
+            tag="File System Access API"
+          />
+          <ArchCard
+            title="2. Compound detects topics"
+            body="Heuristics from MOC backlinks, recent edits, and folder activity rank what you're actively working on."
+            tag="vault_metadata"
+          />
+          <ArchCard
+            title="3. GPT-4o orchestrates research"
+            body="Convex cron triggers OpenAI Responses API. GPT-4o calls our MCP tools autonomously: list_topics → research_topic → add_note_to_vault."
+            tag="OpenAI Responses API"
+          />
+          <ArchCard
+            title="4. Tensorlake holds memory"
+            body="Per-topic named sandbox stores researched paper IDs. Survives across cron runs — no duplicates between sessions."
+            tag="Tensorlake"
+          />
+          <ArchCard
+            title="5. Convex logs everything"
+            body="Tool calls, vault additions, vault metadata — all reactive. This dashboard updates real-time as cron runs."
+            tag="Convex"
+          />
+          <ArchCard
+            title="6. Telegram closes the loop"
+            body="Evening check-in (22:00), morning recap (07:30) with overnight summary. You close the loop without opening anything."
+            tag="@Hackathon_Compoundbot"
+          />
+        </div>
+        <div className="mt-4 pt-3 border-t border-neutral-800 text-xs text-neutral-500">
+          Multi-LLM compatible: same MCP server callable from Claude Routines (Team plan),
+          ChatGPT Tasks (Plus/Pro), Cursor, Claude Code, or any HTTPS MCP client.
+        </div>
+      </section>
+
       <section className="rounded-lg border border-neutral-800 p-5 bg-neutral-900/30">
         <h3 className="text-sm font-semibold mb-2">Connect to your Claude</h3>
         <p className="text-xs text-neutral-400 mb-3">
@@ -230,6 +271,18 @@ function Empty({ hint }: { hint: string }) {
   return (
     <div className="rounded-lg border border-dashed border-neutral-800 p-6 text-sm text-neutral-500 text-center">
       {hint}
+    </div>
+  );
+}
+
+function ArchCard({ title, body, tag }: { title: string; body: string; tag: string }) {
+  return (
+    <div className="rounded border border-neutral-800 p-3 bg-neutral-950/40">
+      <div className="text-sm font-medium mb-1">{title}</div>
+      <div className="text-xs text-neutral-400 leading-relaxed">{body}</div>
+      <div className="mt-2 inline-block text-[10px] uppercase tracking-wider text-emerald-400 border border-emerald-700/40 px-1.5 py-0.5 rounded">
+        {tag}
+      </div>
     </div>
   );
 }

@@ -169,15 +169,17 @@ export default function ConnectVault() {
             {researchResult ? (
               <>
                 {" "}
-                First research run completed:{" "}
-                <span className="text-violet-300 font-medium">
-                  {researchResult.addedCount ?? 0} notes added
-                </span>{" "}
-                from topic <span className="text-violet-300">{researchResult.topic}</span> via{" "}
-                {researchResult.source}. Scroll down — dashboard reflects it now.
+                First research run executed via{" "}
+                <span className="text-emerald-300 font-medium">
+                  {researchResult.source ?? "openai-gpt-4o-mini"}
+                </span>
+                . Topic: <span className="text-violet-300">{researchResult.topic}</span>. Tool
+                calls made:{" "}
+                <span className="text-violet-300">{researchResult.addedCount ?? 0}</span>. Scroll
+                down — dashboard live-updates.
               </>
             ) : (
-              " Overnight cron will research highest-priority topics tonight at 03:00."
+              " Overnight cron will research highest-priority topics nightly at 03:00 + 06:00 SF."
             )}
           </div>
         </div>
