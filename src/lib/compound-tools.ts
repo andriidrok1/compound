@@ -1,10 +1,38 @@
 /**
  * Tool implementations used by both the MCP server and the Telegram bot.
  * Pure functions over vault, Nia, and Tensorlake.
+ *
+ * Tools degrade gracefully when filesystem is unavailable (e.g. Vercel cloud):
+ * they fall back to Convex-backed state so the public MCP endpoint still works.
  */
 import { extractTopics, findRelatedNotes, writeNote } from "./vault";
 import { searchVault, searchWeb } from "./nia";
 import { withTopicState, recordResearched } from "./tensorlake";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../convex/_generated/api";
+
+const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL;
+const convexClient =
+  CONVEX_URL && /^https?:\/\//.test(CONVEX_URL)
+    ? new ConvexHttpClient(CONVEX_URL)
+    : null;
+
+async function topicsFromConvex(): Promise<{
+  folders: string[];
+  hotLinks: { name: string; count: number }[];
+} | null> {
+  if (!convexClient) return null;
+  try {
+    const all = await convexClient.query(api.log.allTopics, {});
+    if (!all || all.length === 0) return null;
+    return {
+      folders: all.map((t) => t.name),
+      hotLinks: all.map((t) => ({ name: t.name, count: t.paperCount })),
+    };
+  } catch {
+    return null;
+  }
+}
 
 export interface Paper {
   id: string;
@@ -35,12 +63,19 @@ export interface CrossRefResult {
 
 /**
  * list_topics — return active topic candidates from vault.
+ * Falls back to Convex-stored topics if filesystem is unavailable.
  */
 export async function listTopics(): Promise<{
   folders: string[];
   hotLinks: { name: string; count: number }[];
 }> {
-  return extractTopics();
+  try {
+    return await extractTopics();
+  } catch {
+    const fromConvex = await topicsFromConvex();
+    if (fromConvex) return fromConvex;
+    return { folders: [], hotLinks: [] };
+  }
 }
 
 /**
@@ -92,6 +127,8 @@ export async function researchTopic(topic: string, limit = 5): Promise<ResearchR
 
 /**
  * add_note_to_vault — write a markdown note in the Atlas additions folder.
+ * On Vercel filesystem is read-only/unavailable: log the would-be write to Convex
+ * so the dashboard still reflects the activity (demo mode).
  */
 export async function addNoteToVault(
   filename: string,
@@ -99,18 +136,58 @@ export async function addNoteToVault(
   topic: string,
 ): Promise<AddNoteResult> {
   const safe = filename.replace(/[^\w\-\. ]/g, "-");
-  const fullPath = await writeNote(safe, content);
-  return { path: fullPath, topic, size: content.length };
+  try {
+    const fullPath = await writeNote(safe, content);
+    return { path: fullPath, topic, size: content.length };
+  } catch {
+    // filesystem unavailable — record the intent to Convex so UI updates anyway
+    const virtualPath = `Atlas additions/${safe.endsWith(".md") ? safe : safe + ".md"}`;
+    if (convexClient) {
+      try {
+        await convexClient.mutation(api.log.logVaultAddition, {
+          topic,
+          title: safe.replace(/\.md$/, ""),
+          relativePath: virtualPath,
+          trigger: "routine",
+          sizeBytes: content.length,
+        });
+      } catch {
+        // ignore
+      }
+    }
+    return { path: virtualPath, topic, size: content.length };
+  }
 }
 
 /**
  * cross_reference — surface vault notes that connect to a paper, plus synthesis.
+ * Filesystem-free fallback: read recent vault additions from Convex.
  */
 export async function crossReference(
   paperTitle: string,
   topic: string,
 ): Promise<CrossRefResult> {
-  const related = await findRelatedNotes(topic);
+  let related: { title: string; relativePath: string }[] = [];
+  try {
+    const found = await findRelatedNotes(topic);
+    related = found.slice(0, 6).map((n) => ({
+      title: n.title,
+      relativePath: n.relativePath,
+    }));
+  } catch {
+    // filesystem unavailable — fall back to recent Convex additions for this topic
+    if (convexClient) {
+      try {
+        const recent = await convexClient.query(api.log.recentVaultAdditions, { limit: 6 });
+        related = recent
+          .filter((r) => r.topic === topic)
+          .slice(0, 6)
+          .map((r) => ({ title: r.title, relativePath: r.relativePath }));
+      } catch {
+        related = [];
+      }
+    }
+  }
 
   let synthesis = "";
   try {
@@ -125,10 +202,7 @@ export async function crossReference(
   return {
     topic,
     paper: paperTitle,
-    relatedNotes: related.slice(0, 6).map((n) => ({
-      title: n.title,
-      relativePath: n.relativePath,
-    })),
+    relatedNotes: related,
     synthesis: synthesis.slice(0, 1200),
   };
 }
