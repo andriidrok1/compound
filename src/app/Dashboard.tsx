@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "convex/react";
+import { useState } from "react";
 import { api } from "../../convex/_generated/api";
 import ConnectVault from "./ConnectVault";
 
@@ -72,16 +73,24 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen px-6 py-10 max-w-6xl mx-auto">
       <header className="mb-12">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="h-8 w-8 rounded bg-gradient-to-br from-violet-500 to-fuchsia-500" />
-          <h1 className="text-2xl font-semibold tracking-tight">Compound</h1>
+        <div className="flex items-center gap-3 mb-3">
+          <div className="h-9 w-9 rounded-md bg-gradient-to-br from-violet-500 via-fuchsia-500 to-emerald-400 shadow-lg shadow-violet-500/30" />
+          <h1 className="text-3xl font-semibold tracking-tight">Compound</h1>
         </div>
-        <p className="text-neutral-400 text-sm max-w-xl">
-          Autonomous research agent for your Obsidian vault. Powered by{" "}
-          <span className="text-emerald-300">GPT-4o autonomously orchestrating MCP tools</span> via
-          OpenAI&apos;s Responses API. Reads arxiv while you sleep, adds findings as wikilinked
-          notes. Also works with Claude Routines, ChatGPT Tasks, and any MCP-compatible client.
+        <p className="text-neutral-300 text-base leading-relaxed max-w-2xl">
+          Your second brain on autopilot.{" "}
+          <span className="text-neutral-500">
+            Reads arxiv while you sleep, adds findings to your Obsidian vault as wikilinked notes —
+            using your unused LLM subscription capacity that would otherwise reset.
+          </span>
         </p>
+        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          <Pill>Powered by GPT-4o</Pill>
+          <Pill>Tensorlake state per topic</Pill>
+          <Pill>Convex real-time</Pill>
+          <Pill>Open MCP server</Pill>
+          <Pill subtle>+ Claude Routines / ChatGPT Tasks</Pill>
+        </div>
       </header>
 
       <ConnectVault />
@@ -140,18 +149,33 @@ export default function Dashboard() {
           <Empty hint="When Compound writes a note, it shows up here in real time." />
         ) : (
           <ul className="space-y-2">
-            {additions.map((a) => (
-              <li key={a._id} className="flex items-baseline gap-3 text-sm border-b border-neutral-900 pb-2">
-                <span className="text-neutral-500 font-mono text-xs shrink-0 w-16">
-                  {new Date(a.addedAt).toLocaleTimeString().slice(0, 5)}
-                </span>
-                <span className="font-medium truncate flex-1">{a.title}</span>
-                <span className="text-xs text-neutral-500">{a.topic}</span>
-                <span className="text-xs px-1.5 py-0.5 rounded bg-violet-900/40 text-violet-300">
-                  {a.trigger}
-                </span>
-              </li>
-            ))}
+            {additions.map((a) => {
+              const isUrl = a.sourceUrl && /^https?:\/\//.test(a.sourceUrl);
+              return (
+                <li key={a._id} className="flex items-baseline gap-3 text-sm border-b border-neutral-900 pb-2">
+                  <span className="text-neutral-500 font-mono text-xs shrink-0 w-16">
+                    {relativeTime(a.addedAt)}
+                  </span>
+                  {isUrl ? (
+                    <a
+                      href={a.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium truncate flex-1 hover:text-violet-300 transition-colors"
+                      title={a.sourceUrl}
+                    >
+                      {a.title}
+                    </a>
+                  ) : (
+                    <span className="font-medium truncate flex-1">{a.title}</span>
+                  )}
+                  <span className="text-xs text-neutral-500">{a.topic}</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-violet-900/40 text-violet-300">
+                    {a.trigger}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>
@@ -169,11 +193,11 @@ export default function Dashboard() {
           <ul className="space-y-1 font-mono text-xs">
             {toolCalls.map((c) => (
               <li key={c._id} className="flex gap-3 text-neutral-300 border-b border-neutral-900 py-1.5">
-                <span className="text-neutral-500 w-16">{new Date(c.ts).toLocaleTimeString()}</span>
-                <span className={c.isError ? "text-red-400 font-semibold w-44 truncate" : "text-emerald-400 font-semibold w-44 truncate"}>
+                <span className="text-neutral-500 w-20 shrink-0">{relativeTime(c.ts)}</span>
+                <span className={c.isError ? "text-red-400 font-semibold w-44 shrink-0 truncate" : "text-emerald-400 font-semibold w-44 shrink-0 truncate"}>
                   {c.tool}
                 </span>
-                <span className="text-neutral-500 w-12">{c.durationMs ?? "—"}ms</span>
+                <span className="text-neutral-500 w-14 shrink-0">{c.durationMs ?? "—"}ms</span>
                 <span className="text-neutral-600 truncate flex-1">{c.args}</span>
               </li>
             ))}
@@ -225,19 +249,12 @@ export default function Dashboard() {
       </section>
 
       <section className="rounded-lg border border-neutral-800 p-5 bg-neutral-900/30">
-        <h3 className="text-sm font-semibold mb-2">Connect to your Claude</h3>
+        <h3 className="text-sm font-semibold mb-2">Use Compound from any LLM</h3>
         <p className="text-xs text-neutral-400 mb-3">
-          Add this MCP server to your Claude.ai org → Connectors, then create a routine that uses
-          its tools. Compound picks up the trigger and grows your vault.
+          Add this MCP server to Claude.ai → Connectors, ChatGPT → Settings → Connectors, Cursor,
+          or any MCP client. Then create a scheduled task / routine that uses Compound&apos;s tools.
         </p>
-        <pre className="text-xs bg-black/40 border border-neutral-800 rounded p-3 overflow-auto">
-{`{
-  "compound": {
-    "url": "${mcpUrl}",
-    "tools": ["list_topics", "research_topic", "add_note_to_vault", "cross_reference"]
-  }
-}`}
-        </pre>
+        <CopyableUrl url={mcpUrl} />
       </section>
 
       <footer className="mt-12 text-xs text-neutral-600 text-center">
@@ -273,6 +290,53 @@ function Empty({ hint }: { hint: string }) {
       {hint}
     </div>
   );
+}
+
+function CopyableUrl({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="flex items-center gap-2 bg-black/50 border border-neutral-800 rounded p-3">
+      <code className="text-xs text-emerald-300 font-mono flex-1 truncate select-all">{url}</code>
+      <button
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(url);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          } catch {
+            // ignore
+          }
+        }}
+        className="text-xs px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 transition-colors"
+      >
+        {copied ? "✓ Copied" : "Copy"}
+      </button>
+    </div>
+  );
+}
+
+function Pill({ children, subtle = false }: { children: React.ReactNode; subtle?: boolean }) {
+  return (
+    <span
+      className={
+        "px-2 py-0.5 rounded-full border " +
+        (subtle
+          ? "border-neutral-800 text-neutral-500"
+          : "border-violet-700/40 text-violet-300 bg-violet-950/30")
+      }
+    >
+      {children}
+    </span>
+  );
+}
+
+function relativeTime(ts: number): string {
+  const diff = Math.floor((Date.now() - ts) / 1000);
+  if (diff < 5) return "just now";
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
 }
 
 function ArchCard({ title, body, tag }: { title: string; body: string; tag: string }) {
