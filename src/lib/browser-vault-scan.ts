@@ -105,31 +105,38 @@ function computeMetadata(notes: NoteInfo[]): VaultScanResult {
     modifiedAt: n.modifiedAt,
   }));
 
-  // Topic detection
+  // Topic detection — MOCs first (highest), then wikilinks, then folder activity
   const topics: { name: string; evidence: string; priority: number }[] = [];
 
+  // MOCs = explicit user-curated topics (top priority, uncapped)
+  for (const link of topLinks.slice(0, 20)) {
+    if (looksLikeMoc(link.name)) {
+      topics.push({
+        name: cleanName(link.name.replace(/MOC/i, "").trim()),
+        evidence: `you maintain a MOC for this (${link.count} backlinks)`,
+        priority: 70 + link.count,
+      });
+    }
+  }
+
+  // Hot wikilinks (concept-level)
+  for (const link of topLinks.slice(0, 10)) {
+    if (link.count >= 10 && !looksLikeMoc(link.name)) {
+      topics.push({
+        name: cleanName(link.name),
+        evidence: `referenced ${link.count}× across the vault`,
+        priority: Math.min(100, 40 + link.count),
+      });
+    }
+  }
+
+  // Folder activity = generic signal (lowest)
   for (const [folder, count] of folderActivity) {
     if (count >= 3) {
       topics.push({
         name: cleanName(folder),
         evidence: `${count} notes edited recently in ${folder}`,
-        priority: Math.min(100, 50 + count * 3),
-      });
-    }
-  }
-
-  for (const link of topLinks.slice(0, 10)) {
-    if (looksLikeMoc(link.name)) {
-      topics.push({
-        name: cleanName(link.name.replace(/MOC/i, "").trim()),
-        evidence: `you maintain a MOC for this (${link.count} backlinks)`,
-        priority: Math.min(100, 60 + link.count),
-      });
-    } else if (link.count >= 10) {
-      topics.push({
-        name: cleanName(link.name),
-        evidence: `referenced ${link.count}× across the vault`,
-        priority: Math.min(100, 30 + link.count),
+        priority: Math.min(80, 30 + count * 2),
       });
     }
   }

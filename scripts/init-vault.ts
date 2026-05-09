@@ -112,15 +112,13 @@ function detectTopics(
 ): DetectedTopic[] {
   const topics: DetectedTopic[] = [];
 
-  // 1. Folders with active editing
-  const folderActivity = new Map<string, number>();
-  for (const r of recent) folderActivity.set(r.folder, (folderActivity.get(r.folder) ?? 0) + 1);
-  for (const [folder, count] of folderActivity) {
-    if (count >= 3) {
+  // 1. MOC files = explicit user topics (HIGHEST PRIORITY — user-curated)
+  for (const link of topLinks.slice(0, 20)) {
+    if (looksLikeMoc(link.name)) {
       topics.push({
-        name: cleanTopicName(folder),
-        evidence: `${count} notes edited recently in ${folder}`,
-        priority: Math.min(100, 50 + count * 3),
+        name: cleanTopicName(link.name.replace(/MOC/i, "").trim()),
+        evidence: `you maintain a MOC for this (${link.count} backlinks)`,
+        priority: 70 + link.count, // not capped — MOCs scale freely
       });
     }
   }
@@ -131,18 +129,20 @@ function detectTopics(
       topics.push({
         name: cleanTopicName(link.name),
         evidence: `referenced ${link.count}× across the vault`,
-        priority: Math.min(100, 30 + link.count),
+        priority: Math.min(100, 40 + link.count),
       });
     }
   }
 
-  // 3. MOC files = explicit user topics
-  for (const link of topLinks.slice(0, 20)) {
-    if (looksLikeMoc(link.name)) {
+  // 3. Folder activity (LOWEST — generic signal, "work" / "profile" land here)
+  const folderActivity = new Map<string, number>();
+  for (const r of recent) folderActivity.set(r.folder, (folderActivity.get(r.folder) ?? 0) + 1);
+  for (const [folder, count] of folderActivity) {
+    if (count >= 3) {
       topics.push({
-        name: cleanTopicName(link.name.replace(/MOC/i, "").trim()),
-        evidence: `you maintain a MOC for this (${link.count} backlinks)`,
-        priority: Math.min(100, 60 + link.count),
+        name: cleanTopicName(folder),
+        evidence: `${count} notes edited recently in ${folder}`,
+        priority: Math.min(80, 30 + count * 2),
       });
     }
   }
