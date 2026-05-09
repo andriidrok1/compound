@@ -80,32 +80,29 @@ export async function listTopics(): Promise<{
 
 /**
  * research_topic — find new papers for a topic, filtering against Tensorlake state.
+ * Uses Nia web search + vault context for relevance.
  */
 export async function researchTopic(topic: string, limit = 5): Promise<ResearchResult> {
   return withTopicState(topic, async (state) => {
-    // Try Nia web search for fresh external content
     let candidates: Paper[] = [];
+
+    // Web search for arxiv papers
     try {
-      const webResp = await searchWeb(`${topic} arxiv 2026`);
-      if (webResp.results) {
-        candidates = webResp.results.slice(0, limit * 2).map((r, i) => ({
-          id: hashId(r.content),
-          title: deriveTitle(r.content),
+      const q = `${topic} arxiv 2025 paper site:arxiv.org`;
+      const webResp = await searchWeb(q);
+      if (webResp.results && webResp.results.length > 0) {
+        candidates = webResp.results.slice(0, limit * 2).map((r) => ({
+          id: hashId(r.content ?? r.source ?? ""),
+          title: deriveTitle(r.content ?? ""),
           source: r.source ?? "nia-web",
-          snippet: (r.content ?? "").slice(0, 240),
+          snippet: (r.content ?? "").slice(0, 280),
         }));
-      } else if (webResp.answer) {
-        candidates = [
-          {
-            id: hashId(webResp.answer),
-            title: `Web answer: ${topic}`,
-            source: "nia-web",
-            snippet: webResp.answer.slice(0, 240),
-          },
-        ];
+      } else if (webResp.answer && webResp.answer.length > 50) {
+        // Parse multi-line answer into pseudo-papers (one per paragraph with a URL)
+        candidates = extractPapersFromAnswer(webResp.answer, limit * 2);
       }
-    } catch (err: any) {
-      // continue with empty candidates if web search fails
+    } catch {
+      // continue with empty
     }
 
     const seen = new Set(state.researched.map((r) => r.paperId));
@@ -121,6 +118,29 @@ export async function researchTopic(topic: string, limit = 5): Promise<ResearchR
       newPapers,
       alreadyResearched,
       state: { runCount: state.runCount, total: state.researched.length },
+    };
+  });
+}
+
+/**
+ * Extract pseudo-papers from a free-text Nia answer.
+ * Looks for blocks containing arxiv URLs or numbered items.
+ */
+function extractPapersFromAnswer(text: string, max: number): Paper[] {
+  const blocks = text
+    .split(/\n\n+|\n(?=\d+[\.)]\s|\*\s|\-\s)/)
+    .map((b) => b.trim())
+    .filter((b) => b.length > 30 && /https?:\/\//.test(b));
+
+  return blocks.slice(0, max).map((block) => {
+    const cleaned = block.replace(/^[\d\.\)\-\*\s]+/, "").trim();
+    const urlMatch = cleaned.match(/https?:\/\/[^\s)]+/);
+    const title = (cleaned.split("\n")[0] ?? cleaned).slice(0, 160).trim();
+    return {
+      id: hashId(title + (urlMatch?.[0] ?? "")),
+      title,
+      source: urlMatch?.[0] ?? "nia-web",
+      snippet: cleaned.slice(0, 280),
     };
   });
 }
