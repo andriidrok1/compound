@@ -14,14 +14,14 @@ crons.daily(
 crons.daily(
   "overnight research run 1",
   { hourUTC: 10, minuteUTC: 0 },
-  internal.agent.overnightResearch,
+  internal.agent.openaiResearch,
 );
 
 // Second overnight pass: 06:00 SF → 13:00 UTC
 crons.daily(
   "overnight research run 2",
   { hourUTC: 13, minuteUTC: 0 },
-  internal.agent.overnightResearch,
+  internal.agent.openaiResearch,
 );
 
 // Morning recap: 07:30 SF → 14:30 UTC

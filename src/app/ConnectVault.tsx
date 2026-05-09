@@ -37,10 +37,14 @@ export default function ConnectVault() {
         recentNotes: meta.recentNotes,
         detectedTopics: meta.detectedTopics,
       });
-      // Auto-trigger first research so the user sees Compound work immediately
+      // Auto-trigger first research via OpenAI (main path) so the user sees Compound work immediately
       setStatus("researching");
-      const r = await triggerResearch({});
-      setResearchResult(r);
+      const r = await triggerOpenai({});
+      setResearchResult({
+        ...r,
+        addedCount: r.tool_calls_made ?? 0,
+        source: "openai-gpt-4o-mini",
+      });
       setStatus("done");
     } catch (err: any) {
       if (err?.name === "AbortError") {
@@ -113,18 +117,19 @@ export default function ConnectVault() {
         {status === "done" && (
           <>
             <button
-              onClick={handleRunNow}
-              disabled={running}
-              className="px-4 py-2 rounded border border-violet-700/50 hover:bg-violet-950/40 disabled:opacity-40 text-sm font-medium transition-colors"
-            >
-              {running ? "Running…" : "Run via Claude path (arxiv direct)"}
-            </button>
-            <button
               onClick={handleRunOpenai}
               disabled={running}
-              className="px-4 py-2 rounded border border-emerald-700/50 hover:bg-emerald-950/40 disabled:opacity-40 text-sm font-medium transition-colors"
+              className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-sm font-medium transition-colors"
             >
-              {running ? "Running…" : "Run via GPT-4o (MCP autonomous)"}
+              {running ? "Running…" : "Run research now (GPT-4o)"}
+            </button>
+            <button
+              onClick={handleRunNow}
+              disabled={running}
+              className="px-4 py-2 rounded border border-neutral-700 hover:bg-neutral-900 disabled:opacity-40 text-sm font-medium transition-colors"
+              title="Alternative path using arxiv direct fetch"
+            >
+              {running ? "Running…" : "Fallback: arxiv direct"}
             </button>
           </>
         )}
