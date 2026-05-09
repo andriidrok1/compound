@@ -12,6 +12,8 @@ import {
   addNoteToVault,
   crossReference,
 } from "@/lib/compound-tools";
+import { logToolCall, logVaultAddition } from "@/lib/convex-server";
+import path from "path";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -120,8 +122,32 @@ async function handleMethod(req: JsonRpcRequest) {
 
     case "tools/call": {
       const { name, arguments: args } = req.params ?? {};
+      const start = Date.now();
       try {
         const data = await callTool(name, args ?? {});
+        const durationMs = Date.now() - start;
+
+        // Best-effort Convex logging (won't block on failure)
+        void logToolCall({
+          tool: name,
+          args,
+          result: data,
+          durationMs,
+          source: "routine",
+        });
+
+        // Side-channel: if a note was just added, log a vault_addition row
+        if (name === "add_note_to_vault" && data && typeof data === "object" && "path" in data) {
+          const d = data as { path: string; topic: string; size: number };
+          void logVaultAddition({
+            topic: d.topic,
+            title: path.basename(d.path).replace(/\.md$/, ""),
+            relativePath: d.path,
+            sizeBytes: d.size,
+            trigger: "routine",
+          });
+        }
+
         return jsonRpcResult(req.id, {
           content: [
             {
@@ -131,6 +157,15 @@ async function handleMethod(req: JsonRpcRequest) {
           ],
         });
       } catch (err: any) {
+        const durationMs = Date.now() - start;
+        void logToolCall({
+          tool: name,
+          args,
+          result: { error: err?.message ?? String(err) },
+          durationMs,
+          isError: true,
+          source: "routine",
+        });
         return jsonRpcResult(req.id, {
           content: [
             { type: "text", text: `Error: ${err?.message ?? String(err)}` },
